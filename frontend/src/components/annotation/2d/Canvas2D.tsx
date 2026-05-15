@@ -63,7 +63,7 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
 
   const store = useAnnotationStore();
   const {
-    annotations2d, activeTool2d, selectedIds2d, labelClasses, activeLabel,
+    annotations2d, activeTool2d, selectedIds2d, labelClasses,
     zoom, showLabels, showConfidence, opacity,
     addAnnotation2d, updateAnnotation2d, selectAnnotations2d, clearSelection2d,
     deleteAnnotation2d, setZoom,
@@ -505,7 +505,7 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
     }
   }
 
-  function onDoubleClick(e: React.MouseEvent<HTMLCanvasElement>) {
+  function onDoubleClick(_e: React.MouseEvent<HTMLCanvasElement>) {
     const tool = useAnnotationStore.getState().activeTool2d;
     if ((tool === 'polygon' || tool === 'polyline') && isDrawingRef.current) {
       const pts = currentPointsRef.current;

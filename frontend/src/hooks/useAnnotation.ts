@@ -11,9 +11,9 @@ export function useAnnotationHotkeys() {
       const tag = (e.target as HTMLElement).tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
 
-      const { mode, setTool2d, setTool3d, undo, redo,
-              deleteAnnotation2d, deleteBox3d, selectedIds2d, selectedIds3d,
-              labelClasses, setActiveLabel, saveDraft } = useAnnotationStore.getState()
+      const { mode, setTool2d, setTool3d,
+              undo, redo, deleteAnnotation2d, deleteBox3d,
+              selectedIds2d, selectedIds3d, labelClasses, setActiveLabel } = store;
 
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'z') { e.preventDefault(); undo(); return }

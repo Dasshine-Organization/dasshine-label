@@ -1,6 +1,6 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { v4 as uuid } from 'uuid';
-import useAnnotationStore, { Box3D, Point3D } from '../../../store/annotationStore';
+import useAnnotationStore, { Box3D } from '../../../store/annotationStore';
 
 // We load Three.js from CDN at runtime to avoid bundler issues in the existing project.
 // In production you'd do: import * as THREE from 'three'
@@ -30,18 +30,6 @@ function generateDemoPointCloud(n = 8000) {
     colors[i * 3 + 1] = t * 0.6 + 0.2;
     colors[i * 3 + 2] = 1 - t * 0.4;
   }
-  // add some "objects"
-  const addCluster = (cx: number, cy: number, cz: number, rx: number, ry: number, rz: number, count: number, r: number, g: number, b: number) => {
-    const base = n - count;
-    for (let i = 0; i < count; i++) {
-      positions[(base + i) * 3]     = cx + (Math.random() - 0.5) * rx;
-      positions[(base + i) * 3 + 1] = cy + (Math.random() - 0.5) * ry;
-      positions[(base + i) * 3 + 2] = cz + (Math.random() - 0.5) * rz;
-      colors[(base + i) * 3]     = r;
-      colors[(base + i) * 3 + 1] = g;
-      colors[(base + i) * 3 + 2] = b;
-    }
-  };
   return { positions, colors };
 }
 
@@ -51,7 +39,7 @@ interface Canvas3DProps {
   pointCloudUrl?: string;
 }
 
-export default function Canvas3D({ pointCloudUrl }: Canvas3DProps) {
+export default function Canvas3D({ pointCloudUrl: _pointCloudUrl }: Canvas3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<any>(null);
   const sceneRef = useRef<any>(null);
@@ -72,7 +60,7 @@ export default function Canvas3D({ pointCloudUrl }: Canvas3DProps) {
   });
 
   const store = useAnnotationStore();
-  const { boxes3d, activeTool3d, selectedIds3d, labelClasses, activeLabel } = store;
+  const { boxes3d, activeTool3d, selectedIds3d } = store;
 
   // ── load Three.js ──
   useEffect(() => {

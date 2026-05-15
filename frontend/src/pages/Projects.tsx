@@ -1,11 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import api from '../services/api'
-import useAuthStore from '../store/authStore'
-import { ProjectSummary, AnnotationCategory, ProjectStatus } from '../types/project'
-import CreateProjectModal from '../components/project/CreateProjectModal'
-import DispatchModal from '../components/project/DispatchModal'
-import DatasetImportModal from '../components/dataset/DatasetImportModal'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 

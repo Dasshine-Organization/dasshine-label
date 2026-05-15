@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.user import User
     from app.models.project import Project
     from app.models.annotation import Annotation
+    from app.models.annotation_draft import AnnotationDraft
 
 
 class TaskStatus(str, enum.Enum):
@@ -80,6 +81,9 @@ class Task(Base, TimestampMixin):
     
     # 关系 - 引用外部Annotation模型
     annotations: Mapped[List["Annotation"]] = relationship("Annotation", back_populates="task")
+    annotation_drafts: Mapped[List["AnnotationDraft"]] = relationship(
+        "AnnotationDraft", back_populates="task", cascade="all, delete-orphan"
+    )
     reviews: Mapped[List["Review"]] = relationship("Review", back_populates="task")
     
     def __repr__(self) -> str:

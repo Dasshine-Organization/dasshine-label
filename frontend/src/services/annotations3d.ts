@@ -2,7 +2,6 @@ import axios from 'axios'
 import type { 
   Cuboid3D, 
   Point3D, 
-  Annotation3DResult,
   Annotation3DStats 
 } from '../types/annotation3d'
 

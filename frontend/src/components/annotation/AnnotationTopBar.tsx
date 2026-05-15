@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Progress, Tooltip } from 'antd'
-import useAnnotationStore from '../../store/annotationStore'
-import AutoSaveIndicator from './AutoSaveIndicator'
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Progress, Tooltip, message } from 'antd';
+import useAnnotationStore from '../../store/annotationStore';
 
 function useTimer() {
   const [seconds, setSeconds] = useState(0)
@@ -17,13 +16,14 @@ function useTimer() {
 }
 
 interface TopBarProps {
-  taskName?: string
-  totalImages?: number
-  currentImage?: number
-  onPrev?: () => void
-  onNext?: () => void
-  onExport?: () => void
-  onSubmit?: () => void
+  taskName?: string;
+  totalImages?: number;
+  currentImage?: number;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onExport?: () => void;
+  /** 本地保存时间提示（2D 会话等） */
+  saveHint?: string;
 }
 
 export default function AnnotationTopBar({
@@ -33,7 +33,7 @@ export default function AnnotationTopBar({
   onPrev,
   onNext,
   onExport,
-  onSubmit,
+  saveHint,
 }: TopBarProps) {
   const navigate = useNavigate()
   const { mode, setMode, annotations2d, boxes3d, saveDraft, autoSaveMeta } = useAnnotationStore()
@@ -106,34 +106,36 @@ export default function AnnotationTopBar({
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Image navigation */}
-      {totalImages > 1 && (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onPrev}
-            className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-              <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-          <div className="flex items-center gap-2 min-w-28">
-            <span className="text-xs text-white/40 font-mono">{currentImage}/{totalImages}</span>
-            <Progress
-              percent={progress} showInfo={false} size="small"
-              strokeColor="#00d4ff" trailColor="#1e1e2e"
-              className="flex-1 !m-0"
-            />
-            <span className="text-xs text-white/40 font-mono">{progress}%</span>
-          </div>
-          <button
-            onClick={onNext}
-            className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all"
-          >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-              <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
+      {saveHint && (
+        <>
+          <span className="text-[10px] text-emerald-400/80 max-w-40 truncate" title={saveHint}>
+            {saveHint}
+          </span>
+          <div className="w-px h-5 bg-[#1e1e2e]" />
+        </>
+      )}
+
+      {/* image navigation */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onPrev}
+          className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+            <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <div className="flex items-center gap-2 min-w-32">
+          <span className="text-xs text-white/40 font-mono">{currentImage}/{totalImages}</span>
+          <Progress
+            percent={progress}
+            showInfo={false}
+            size="small"
+            strokeColor="#00d4ff"
+            trailColor="#1e1e2e"
+            className="flex-1 !m-0"
+          />
+          <span className="text-xs text-white/40 font-mono">{progress}%</span>
         </div>
       )}
 
