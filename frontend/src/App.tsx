@@ -10,6 +10,7 @@ import TaskList from './pages/TaskList'
 import AnnotationWorkspace from './pages/AnnotationWorkspace'
 import ImageAnnotation from './pages/ImageAnnotation'
 import PointCloudAnnotation from './pages/PointCloudAnnotation'
+import EmbodiedAnnotation from './pages/EmbodiedAnnotation'
 import Projects from './pages/Projects'
 import './index.css'
 
@@ -51,6 +52,7 @@ function App() {
           <Route path="annotate/:taskId" element={<AnnotationWorkspace />} />
           <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />
           <Route path="annotate-3d/:taskId" element={<PointCloudAnnotation />} />
+          <Route path="annotate-embodied/:taskId" element={<EmbodiedAnnotation />} />
         </Route>
       </Routes>
     </>

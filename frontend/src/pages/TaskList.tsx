@@ -1,16 +1,27 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import useAuthStore from '../store/authStore'
 
 type Status = 'all' | 'pending' | 'in_progress' | 'submitted' | 'approved'
 
-const MOCK_TASKS = [
-  { id: 1001, project: '自动驾驶场景标注', type: '2D BBox', status: 'pending',     priority: 'high',   reward: 0.8 },
-  { id: 1002, project: '点云 3D 标注',     type: '3D Box', status: 'in_progress', priority: 'medium', reward: 1.5 },
-  { id: 1003, project: '行人检测',         type: '2D 多边形', status: 'submitted', priority: 'low',    reward: 0.5 },
-  { id: 1004, project: '交通标志识别',     type: '2D BBox', status: 'approved',   priority: 'high',   reward: 0.8 },
-  { id: 1005, project: '自动驾驶场景标注', type: '2D BBox', status: 'pending',     priority: 'medium', reward: 0.8 },
-  { id: 1006, project: '点云 3D 标注',     type: '3D Box', status: 'pending',     priority: 'high',   reward: 1.5 },
+type MockWorkspace = 'image' | '3d' | 'embodied'
+
+const MOCK_TASKS: {
+  id: number
+  project: string
+  type: string
+  status: 'pending' | 'in_progress' | 'submitted' | 'approved'
+  priority: 'high' | 'medium' | 'low'
+  reward: number
+  workspace: MockWorkspace
+}[] = [
+  { id: 1001, project: '自动驾驶场景标注', type: '2D BBox', status: 'pending',     priority: 'high',   reward: 0.8, workspace: 'image' },
+  { id: 1002, project: '点云 3D 标注',     type: '3D Box', status: 'in_progress', priority: 'medium', reward: 1.5, workspace: '3d' },
+  { id: 1003, project: '行人检测',         type: '2D 多边形', status: 'submitted', priority: 'low',    reward: 0.5, workspace: 'image' },
+  { id: 1004, project: '交通标志识别',     type: '2D BBox', status: 'approved',   priority: 'high',   reward: 0.8, workspace: 'image' },
+  { id: 1005, project: '自动驾驶场景标注', type: '2D BBox', status: 'pending',     priority: 'medium', reward: 0.8, workspace: 'image' },
+  { id: 1006, project: '点云 3D 标注',     type: '3D Box', status: 'pending',     priority: 'high',   reward: 1.5, workspace: '3d' },
+  { id: 2001, project: '具身示例 · InSight 机械臂（多视角视频）', type: '动作序列 / 关节扭矩', status: 'pending', priority: 'high', reward: 2.0, workspace: 'embodied' },
+  { id: 2002, project: '具身 · ALOHA 制咖啡（四路真实相机）', type: 'LeRobot 多视角同步', status: 'pending', priority: 'high', reward: 2.2, workspace: 'embodied' },
 ]
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -39,8 +50,10 @@ export default function TaskList() {
     { key: 'approved',    label: '已完成' },
   ]
 
-  function startTask(task: typeof MOCK_TASKS[0]) {
-    if (task.type.includes('3D')) {
+  function startTask(task: (typeof MOCK_TASKS)[0]) {
+    if (task.workspace === 'embodied') {
+      navigate(`/annotate-embodied/${task.id}`)
+    } else if (task.workspace === '3d' || task.type.includes('3D')) {
       navigate(`/annotate-3d/${task.id}`)
     } else {
       navigate(`/annotate-image/${task.id}`)

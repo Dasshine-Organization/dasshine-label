@@ -9,6 +9,8 @@ const LEVEL_COLORS: Record<string, string> = {
 const QUICK_LINKS = [
   { label: '2D 图像标注', desc: '矩形框 / 多边形 / 关键点', href: '/annotate-image/1001', color: '#00d4ff', icon: '◧' },
   { label: '3D 点云标注', desc: '三维包围盒标注',           href: '/annotate-3d/1001',   color: '#a78bfa', icon: '⬡' },
+  { label: '具身 · InSight', desc: '多视角演示 · 逐帧与连续播放', href: '/annotate-embodied/demo', color: '#f97316', icon: '⎔' },
+  { label: '具身 · ALOHA 四相机', desc: 'LeRobot 真实多路视频（独立 URL）', href: '/annotate-embodied/2002', color: '#84cc16', icon: '⬢' },
   { label: '任务列表',    desc: '查看并领取待标注任务',      href: '/tasks',               color: '#10b981', icon: '☰' },
   { label: '项目管理',    desc: '浏览所有标注项目',          href: '/projects',            color: '#f59e0b', icon: '◈' },
 ]
