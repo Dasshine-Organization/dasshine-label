@@ -148,9 +148,11 @@ export const taskApi = {
 
   /** 2D 图像标注草稿（服务端） */
   getAnnotationDraft: (taskId: number) =>
-    api.get<{ payload: Record<string, unknown>; task_status?: string }>(
-      `/tasks/${taskId}/annotation-draft`,
-    ),
+    api.get<{
+      payload: Record<string, unknown>
+      task_status?: string
+      updated_at?: string | null
+    }>(`/tasks/${taskId}/annotation-draft`),
 
   saveAnnotationDraft: (taskId: number, payload: Record<string, unknown>) =>
     api.put<{ task_status?: string }>(`/tasks/${taskId}/annotation-draft`, { payload }),
@@ -161,6 +163,15 @@ export const taskApi = {
   ) =>
     api.post<{ task_status?: string; message?: string }>(
       `/tasks/${taskId}/image/submit`,
+      data,
+    ),
+
+  submitPointCloudAnnotation: (
+    taskId: number,
+    data: { payload: Record<string, unknown>; work_time: number },
+  ) =>
+    api.post<{ task_status?: string; message?: string }>(
+      `/tasks/${taskId}/pointcloud/submit`,
       data,
     ),
 }

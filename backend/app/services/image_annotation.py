@@ -27,6 +27,15 @@ def _frames_have_labels(payload: Dict[str, Any]) -> bool:
     return False
 
 
+def _boxes3d_have_labels(payload: Dict[str, Any]) -> bool:
+    boxes = payload.get("boxes3d")
+    return isinstance(boxes, list) and len(boxes) > 0
+
+
+def _payload_has_work(payload: Dict[str, Any]) -> bool:
+    return _frames_have_labels(payload) or _boxes3d_have_labels(payload)
+
+
 def ensure_task_assignee(db: Session, task: Task, user: User) -> None:
     """项目成员打开任务时自动领取（待分配且无受让人）。"""
     if task.assignee_id is not None:
@@ -54,7 +63,7 @@ def touch_task_on_draft(db: Session, task: Task, user: User, payload: Dict[str, 
 
     ensure_task_assignee(db, task, user)
 
-    if task.assignee_id == user.id and _frames_have_labels(payload):
+    if task.assignee_id == user.id and _payload_has_work(payload):
         if task.status in (TaskStatus.PENDING, TaskStatus.ASSIGNED):
             task.status = TaskStatus.ANNOTATING
             if not task.started_at:
@@ -103,6 +112,65 @@ def submit_image_annotation(
             task_id=task.id,
             data_id=str(task.id),
             annotation_type=AnnotationType.BOUNDING_BOX,
+            data=export_doc,
+            status=AnnotationStatus.COMPLETED,
+            annotator_id=user.id,
+            work_time=work_time,
+            is_latest=True,
+        )
+        db.add(ann)
+
+    now = datetime.now(timezone.utc)
+    task.status = TaskStatus.SUBMITTED
+    task.submitted_at = now
+    task.work_time = work_time
+    if not task.started_at:
+        task.started_at = now
+    db.commit()
+    db.refresh(ann)
+    db.refresh(task)
+    return ann
+
+
+def submit_pointcloud_annotation(
+    db: Session, task: Task, user: User, payload: Dict[str, Any], work_time: int
+) -> Annotation:
+    if not can_access_task_workspace(db, task, user):
+        raise PermissionError("无权提交该任务")
+
+    ensure_task_assignee(db, task, user)
+
+    schema = _get_schema(task.project)
+    ann_type = schema.get("ann_type", "bbox_3d")
+    export_doc = {
+        "schema": "dasshine.pointcloud_export.v1",
+        "task_id": task.id,
+        "ann_type": ann_type,
+        "session": payload,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    existing = (
+        db.query(Annotation)
+        .filter(
+            Annotation.task_id == task.id,
+            Annotation.annotator_id == user.id,
+            Annotation.is_latest.is_(True),
+        )
+        .first()
+    )
+    if existing:
+        existing.data = export_doc
+        existing.work_time = work_time
+        existing.version += 1
+        existing.annotation_type = AnnotationType.CUBOID_3D
+        ann = existing
+    else:
+        ann = Annotation(
+            id=str(uuid.uuid4()),
+            task_id=task.id,
+            data_id=str(task.id),
+            annotation_type=AnnotationType.CUBOID_3D,
             data=export_doc,
             status=AnnotationStatus.COMPLETED,
             annotator_id=user.id,

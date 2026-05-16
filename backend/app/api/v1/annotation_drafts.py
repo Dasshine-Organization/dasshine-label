@@ -14,7 +14,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db, get_current_user
 from app.models.annotation_draft import AnnotationDraft
 from app.models.user import User
-from app.services.image_annotation import submit_image_annotation, touch_task_on_draft
+from app.services.image_annotation import (
+    submit_image_annotation,
+    submit_pointcloud_annotation,
+    touch_task_on_draft,
+)
 from app.services.project_acl import can_access_task_workspace, get_task_and_project
 
 router = APIRouter()
@@ -119,6 +123,31 @@ def submit_image_task(
         raise HTTPException(status_code=404, detail="任务不存在")
     try:
         ann = submit_image_annotation(db, task, current_user, body.payload, body.work_time)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
+    return {
+        "message": "标注已提交",
+        "annotation_id": ann.id,
+        "task_id": task_id,
+        "task_status": status_val,
+    }
+
+
+@router.post("/tasks/{task_id}/pointcloud/submit")
+def submit_pointcloud_task(
+    task_id: int,
+    body: ImageSubmitBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """提交 3D 点云标注（项目成员可直接提交）。"""
+    task, _ = get_task_and_project(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    try:
+        ann = submit_pointcloud_annotation(db, task, current_user, body.payload, body.work_time)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
 

@@ -117,17 +117,24 @@ function pointInBox3D(
   return Math.abs(lx) <= hx && Math.abs(ly) <= hy && Math.abs(lz) <= hz
 }
 
-/** 将 3D 框内点着色为标签颜色 */
+const HIGHLIGHT_STRENGTH = 0.92
+const HIGHLIGHT_BRIGHTEN = 1.35
+const OUTSIDE_DIM = 0.42
+
+/** 将 3D 框内点着色为标签颜色（高亮），框外点云略微压暗以便对比 */
 export function applyAnnotationColors(
   positions: Float32Array,
   baseColors: Float32Array,
   boxes: Box3D[],
 ): Float32Array {
   const n = positions.length / 3
-  const colors = new Float32Array(baseColors)
+  const colors = new Float32Array(baseColors.length)
+  colors.set(baseColors)
 
   const visible = boxes.filter((b) => b.visible)
   if (visible.length === 0) return colors
+
+  const insideMask = new Uint8Array(n)
 
   for (let i = 0; i < n; i++) {
     const px = positions[i * 3]
@@ -137,14 +144,29 @@ export function applyAnnotationColors(
     for (let j = visible.length - 1; j >= 0; j--) {
       const box = visible[j]
       if (pointInBox3D(px, py, pz, box)) {
+        insideMask[i] = 1
         const [r, g, b] = hexToRgb(box.color)
-        colors[i * 3] = r
-        colors[i * 3 + 1] = g
-        colors[i * 3 + 2] = b
+        const bi = i * 3
+        const br = baseColors[bi]
+        const bg = baseColors[bi + 1]
+        const bb = baseColors[bi + 2]
+        colors[bi] = Math.min(1, (r * HIGHLIGHT_STRENGTH + br * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
+        colors[bi + 1] = Math.min(1, (g * HIGHLIGHT_STRENGTH + bg * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
+        colors[bi + 2] = Math.min(1, (b * HIGHLIGHT_STRENGTH + bb * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
         break
       }
     }
   }
+
+  for (let i = 0; i < n; i++) {
+    if (!insideMask[i]) {
+      const bi = i * 3
+      colors[bi] *= OUTSIDE_DIM
+      colors[bi + 1] *= OUTSIDE_DIM
+      colors[bi + 2] *= OUTSIDE_DIM
+    }
+  }
+
   return colors
 }
 

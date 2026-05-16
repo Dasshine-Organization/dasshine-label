@@ -27,6 +27,7 @@ import {
 } from '../utils/imageAnnotationSession'
 import { useProjectAnnotationQueue } from '../hooks/useProjectAnnotationQueue'
 import { emitProjectTaskStatus } from '../utils/projectTaskStatus'
+import { acknowledgeManualDraftSave } from '../utils/draftSaveNotify'
 import {
   canLoadPrelabelModel,
   formatPrelabelOptionLabel,
@@ -182,12 +183,7 @@ export default function ImageAnnotation() {
     const { annotations2d: a2, labelClasses: lc } = useAnnotationStore.getState()
     const savedAt = persistImageSessionSlice(taskId, currentIdx, currentIdx, a2, lc)
     setLastSavedAt(savedAt)
-    if (showSavedToast) {
-      const meta = useAnnotationStore.getState().autoSaveMeta
-      useAnnotationStore.setState({
-        autoSaveMeta: { ...meta, saveCount: meta.saveCount + 1 },
-      })
-    }
+    if (showSavedToast) acknowledgeManualDraftSave()
     if (useBackendTask) {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
       syncTimerRef.current = setTimeout(() => {

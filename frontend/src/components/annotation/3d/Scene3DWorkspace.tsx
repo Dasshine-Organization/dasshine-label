@@ -9,6 +9,26 @@ import {
   type PointCloudBounds,
   type PointCloudPayload,
 } from '../../../utils/pointCloud3d'
+import {
+  axisWorldDirection,
+  boxFromGroundDrag,
+  drawGroundY,
+  handleWorldPosition,
+  parseHandleId,
+  rayPlaneIntersect,
+} from '../../../utils/box3dEdit'
+import {
+  applyBoxToPreviewGroup,
+  applyEditDrag,
+  createDrawPreviewGroup,
+  disposeDrawPreviewGroup,
+  groundHitFromRay,
+  makeRay,
+  raycastScene,
+  syncHandleGroup,
+  type EditDrag,
+  type PickHit,
+} from './scene3dInteraction'
 import { loadPointCloudAsset } from '../../../utils/pointCloudLoader'
 import { getTaskPointCloudUrl } from '../../../utils/annotationRoutes'
 import {
@@ -58,6 +78,11 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
   const pointsRef = useRef<THREE.Points | null>(null)
   const boundsBoxRef = useRef<THREE.LineSegments | null>(null)
   const boxMeshesRef = useRef<Map<string, THREE.Group>>(new Map())
+  const handlesRootRef = useRef<THREE.Group | null>(null)
+  const handleMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map())
+  const editDragRef = useRef<EditDrag | null>(null)
+  const pointerDidDragRef = useRef(false)
+  const drawPreviewRef = useRef<THREE.Group | null>(null)
   const mainRendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const orthoRenderersRef = useRef<Partial<Record<OrthoView, THREE.WebGLRenderer>>>({})
   const mainCameraRef = useRef<THREE.PerspectiveCamera | null>(null)
@@ -72,7 +97,10 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
   const [activeView, setActiveView] = useState<View3DType>('perspective')
   const [isDrawing3D, setIsDrawing3D] = useState(false)
   const [drawStart, setDrawStart] = useState<{ x: number; z: number } | null>(null)
+  const [drawPreviewSize, setDrawPreviewSize] = useState<{ x: number; z: number } | null>(null)
   const [pointSize, setPointSize] = useState(0.12)
+  const isDrawing3DRef = useRef(false)
+  const drawStartRef = useRef<{ x: number; z: number } | null>(null)
 
   const store = useAnnotationStore()
   const { boxes3d, activeTool3d, selectedIds3d } = store
@@ -344,17 +372,106 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
         group.add(wire)
         const fill = new THREE.Mesh(
           geo,
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, side: THREE.DoubleSide }),
+          new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: isSelected ? 0.22 : 0.12,
+            side: THREE.DoubleSide,
+          }),
         )
         group.add(fill)
         group.position.set(box.center.x, box.center.y, box.center.z)
         group.scale.set(box.size.x, box.size.y, box.size.z)
         group.rotation.set(box.rotation.x, box.rotation.y, box.rotation.z)
+        group.userData = { type: 'box', boxId: box.id }
         scene.add(group)
         boxMeshesRef.current.set(box.id, group)
       }
     })
   }, [boxes3d, selectedIds3d])
+
+  // ── 选中框的缩放/移动手柄 ──
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !bounds) return
+
+    if (handlesRootRef.current) {
+      scene.remove(handlesRootRef.current)
+      handlesRootRef.current.traverse((c) => {
+        if (c instanceof THREE.Mesh) {
+          c.geometry?.dispose()
+          ;(c.material as THREE.Material)?.dispose()
+        }
+      })
+      handlesRootRef.current = null
+      handleMeshesRef.current.clear()
+    }
+
+    const tool = useAnnotationStore.getState().activeTool3d
+    if (tool !== 'select' || selectedIds3d.length !== 1) return
+
+    const box = boxes3d.find((b) => b.id === selectedIds3d[0])
+    if (!box || !box.visible || box.locked) return
+
+    const root = new THREE.Group()
+    root.userData = { boxId: box.id }
+    const radius = Math.max(0.12, bounds.radius * 0.018)
+    syncHandleGroup(root, box, radius, handleMeshesRef.current)
+    scene.add(root)
+    handlesRootRef.current = root
+  }, [boxes3d, selectedIds3d, bounds, activeTool3d])
+
+  const pickAt = useCallback(
+    (clientX: number, clientY: number): PickHit => {
+      const cam = mainCameraRef.current
+      const el = mainRef.current
+      if (!cam || !el) return null
+      const handleList = handlesRootRef.current ? [...handlesRootRef.current.children] : []
+      const boxList = [...boxMeshesRef.current.values()]
+      return raycastScene(cam, clientX, clientY, el.getBoundingClientRect(), handleList, boxList)
+    },
+    [],
+  )
+
+  const getGroundPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const cam = mainCameraRef.current
+      const el = mainRef.current
+      if (!cam || !el || !bounds) return null
+      return groundPlaneIntersect(cam, clientX, clientY, el.getBoundingClientRect(), drawGroundY(bounds))
+    },
+    [bounds],
+  )
+
+  const syncDrawPreview = useCallback(
+    (start: { x: number; z: number }, end: { x: number; z: number }) => {
+      if (!bounds || !sceneRef.current) return
+      const state = useAnnotationStore.getState()
+      const color = state.labelClasses.find((l) => l.name === state.activeLabel)?.color ?? '#00d4ff'
+      const previewBox = boxFromGroundDrag(start, end, bounds, state.activeLabel, color)
+
+      if (!drawPreviewRef.current) {
+        const group = createDrawPreviewGroup(color)
+        sceneRef.current.add(group)
+        drawPreviewRef.current = group
+      }
+
+      applyBoxToPreviewGroup(drawPreviewRef.current, previewBox, start)
+      setDrawPreviewSize({ x: previewBox.size.x, z: previewBox.size.z })
+    },
+    [bounds],
+  )
+
+  const removeDrawPreview = useCallback(() => {
+    if (drawPreviewRef.current && sceneRef.current) {
+      sceneRef.current.remove(drawPreviewRef.current)
+      disposeDrawPreviewGroup(drawPreviewRef.current)
+      drawPreviewRef.current = null
+    }
+    setDrawPreviewSize(null)
+  }, [])
+
+  useEffect(() => () => removeDrawPreview(), [removeDrawPreview])
 
   const applyView = useCallback((view: View3DType | 'fit') => {
     if (!bounds || !orbitRef.current) return
@@ -373,19 +490,76 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
     const tool = useAnnotationStore.getState().activeTool3d
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     interactionRef.current.lastPos = { x: e.clientX, y: e.clientY }
+    pointerDidDragRef.current = false
+    editDragRef.current = null
 
-    if (tool === 'orbit' || tool === 'select' || e.button === 1) {
+    if (tool === 'select' && e.button === 0) {
+      const hit = pickAt(e.clientX, e.clientY)
+      const state = useAnnotationStore.getState()
+      if (hit?.kind === 'handle') {
+        const box = state.boxes3d.find((b) => b.id === hit.boxId)
+        const parsed = parseHandleId(hit.handleId)
+        const cam = mainCameraRef.current
+        const el = mainRef.current
+        if (box && !box.locked && parsed && cam && el) {
+          state.pushHistory()
+          const ray = makeRay(cam, e.clientX, e.clientY, el.getBoundingClientRect())
+          const axisDir = axisWorldDirection(box, parsed.axis)
+          const planePoint = handleWorldPosition(box, parsed.axis, parsed.sign)
+          const startHit = rayPlaneIntersect(ray, planePoint, axisDir) ?? planePoint.clone()
+          editDragRef.current = {
+            kind: 'resize',
+            boxId: box.id,
+            handleId: hit.handleId,
+            axis: parsed.axis,
+            sign: parsed.sign,
+            startBox: JSON.parse(JSON.stringify(box)) as Box3D,
+            startHit,
+            axisDir,
+            planePoint,
+          }
+          return
+        }
+      }
+      if (hit?.kind === 'box') {
+        const box = state.boxes3d.find((b) => b.id === hit.boxId)
+        const cam = mainCameraRef.current
+        const el = mainRef.current
+        if (box && !box.locked && cam && el) {
+          state.selectBoxes3d([box.id])
+          state.pushHistory()
+          const ray = makeRay(cam, e.clientX, e.clientY, el.getBoundingClientRect())
+          const ground = groundHitFromRay(ray, box.center.y) ?? new THREE.Vector3(box.center.x, box.center.y, box.center.z)
+          editDragRef.current = {
+            kind: 'move',
+            boxId: box.id,
+            startBox: JSON.parse(JSON.stringify(box)) as Box3D,
+            startHit: ground,
+          }
+          return
+        }
+        if (box) {
+          state.selectBoxes3d([box.id])
+          return
+        }
+      }
+      state.clearSelection3d()
+      interactionRef.current.isDragging = true
+      return
+    }
+
+    if (tool === 'orbit' || (tool === 'select' && e.button === 1) || e.button === 1) {
       interactionRef.current.isDragging = true
     } else if (tool === 'pan' || e.altKey) {
       interactionRef.current.isPanning = true
     } else if (tool === 'box3d') {
-      const cam = mainCameraRef.current
-      const el = mainRef.current
-      if (!cam || !el) return
-      const pt = groundPlaneIntersect(cam, e.clientX, e.clientY, el.getBoundingClientRect(), bounds?.center.y ?? 0)
+      const pt = getGroundPoint(e.clientX, e.clientY)
       if (pt) {
+        isDrawing3DRef.current = true
+        drawStartRef.current = pt
         setIsDrawing3D(true)
         setDrawStart(pt)
+        syncDrawPreview(pt, pt)
       }
     }
   }
@@ -394,7 +568,38 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
     if (!orbitRef.current || !bounds) return
     const dx = e.clientX - interactionRef.current.lastPos.x
     const dy = e.clientY - interactionRef.current.lastPos.y
+    if (Math.abs(dx) + Math.abs(dy) > 2) pointerDidDragRef.current = true
     interactionRef.current.lastPos = { x: e.clientX, y: e.clientY }
+
+    if (isDrawing3DRef.current && drawStartRef.current) {
+      const pt = getGroundPoint(e.clientX, e.clientY)
+      if (pt) {
+        syncDrawPreview(drawStartRef.current, pt)
+      }
+      return
+    }
+
+    const drag = editDragRef.current
+    if (drag) {
+      const cam = mainCameraRef.current
+      const el = mainRef.current
+      if (!cam || !el) return
+      const state = useAnnotationStore.getState()
+      const box = state.boxes3d.find((b) => b.id === drag.boxId)
+      if (!box) return
+      const ray = makeRay(cam, e.clientX, e.clientY, el.getBoundingClientRect())
+      let hit: THREE.Vector3
+      if (drag.kind === 'move') {
+        hit = groundHitFromRay(ray, drag.startBox.center.y) ?? drag.startHit
+      } else {
+        hit =
+          rayPlaneIntersect(ray, drag.planePoint, drag.axisDir) ??
+          drag.startHit
+      }
+      const patch = applyEditDrag(drag, drag.startBox, ray, hit)
+      if (patch) state.updateBox3d(drag.boxId, patch)
+      return
+    }
 
     if (interactionRef.current.isDragging) {
       rotateOrbit(orbitRef.current, dx, dy)
@@ -410,34 +615,24 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
   function onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     interactionRef.current.isDragging = false
     interactionRef.current.isPanning = false
+    editDragRef.current = null
 
-    if (isDrawing3D && drawStart) {
-      const cam = mainCameraRef.current
-      const el = mainRef.current
-      if (cam && el) {
-        const pt = groundPlaneIntersect(cam, e.clientX, e.clientY, el.getBoundingClientRect(), bounds?.center.y ?? 0)
-        if (pt) {
-          const cx = (drawStart.x + pt.x) / 2
-          const cz = (drawStart.z + pt.z) / 2
-          const sx = Math.abs(pt.x - drawStart.x)
-          const sz = Math.abs(pt.z - drawStart.z)
-          if (sx > 0.3 && sz > 0.3) {
-            const state = useAnnotationStore.getState()
-            const color = state.labelClasses.find((l) => l.name === state.activeLabel)?.color ?? '#00d4ff'
-            const box: Box3D = {
-              id: uuid(),
-              label: state.activeLabel,
-              color,
-              center: { x: cx, y: (bounds?.center.y ?? 0) + 0.75, z: cz },
-              size: { x: sx, y: 1.5, z: sz },
-              rotation: { x: 0, y: 0, z: 0 },
-              visible: true,
-              locked: false,
-            }
-            store.addBox3d(box)
-          }
+    if (isDrawing3DRef.current && drawStartRef.current) {
+      const start = drawStartRef.current
+      const pt = getGroundPoint(e.clientX, e.clientY)
+      if (pt && bounds) {
+        const sx = Math.abs(pt.x - start.x)
+        const sz = Math.abs(pt.z - start.z)
+        if (sx > 0.3 && sz > 0.3) {
+          const state = useAnnotationStore.getState()
+          const color = state.labelClasses.find((l) => l.name === state.activeLabel)?.color ?? '#00d4ff'
+          const box = boxFromGroundDrag(start, pt, bounds, state.activeLabel, color, uuid())
+          store.addBox3d(box)
         }
       }
+      isDrawing3DRef.current = false
+      drawStartRef.current = null
+      removeDrawPreview()
       setIsDrawing3D(false)
       setDrawStart(null)
     }
@@ -451,7 +646,7 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
   }
 
   const cursorMap: Record<string, string> = {
-    select: 'default',
+    select: editDragRef.current ? 'grabbing' : 'default',
     box3d: 'crosshair',
     orbit: interactionRef.current.isDragging ? 'grabbing' : 'grab',
     pan: interactionRef.current.isPanning ? 'grabbing' : 'all-scroll',
@@ -476,6 +671,7 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
       >
         <div ref={mainRef} className="absolute inset-0" />
@@ -483,8 +679,15 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
         <View3DControls activeView={activeView} onSelect={applyView} />
 
         {isDrawing3D && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs px-3 py-1 rounded pointer-events-none">
-            松开鼠标完成 3D 框绘制
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
+            <div className="bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs px-3 py-1 rounded">
+              拖拽绘制 3D 框 · 松开确认
+            </div>
+            {drawPreviewSize && (
+              <div className="bg-black/50 border border-white/10 text-[10px] text-white/70 font-mono px-2 py-0.5 rounded">
+                宽 {drawPreviewSize.x.toFixed(2)} × 深 {drawPreviewSize.z.toFixed(2)}
+              </div>
+            )}
           </div>
         )}
 
@@ -496,8 +699,9 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
         />
 
         <div className="absolute bottom-3 left-3 text-[10px] text-white/25 space-y-0.5 pointer-events-none">
-          <div>左键拖拽：旋转 · 滚轮：缩放 · Pan 工具 / Alt+拖拽：平移</div>
-          <div>框内点云按标签颜色高亮显示</div>
+          <div>选择工具：点击选中框 · 拖拽彩色手柄调尺寸 · 拖拽框体移动</div>
+          <div>左键拖拽空白：旋转 · 滚轮：缩放 · Pan / Alt+拖拽：平移</div>
+          <div>框内点云按标签颜色高亮，框外压暗</div>
         </div>
 
         <div className="absolute bottom-3 right-3 flex items-center gap-2 pointer-events-auto">

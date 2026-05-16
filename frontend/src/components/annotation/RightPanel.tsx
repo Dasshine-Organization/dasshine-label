@@ -3,6 +3,7 @@ import { Slider, Switch, Modal, Input, message } from 'antd';
 import { v4 as uuid } from 'uuid';
 import useAnnotationStore, { AnnotationDraft, LabelClass } from '../../store/annotationStore';
 import DraftListPanel from './DraftListPanel';
+import Box3DPropertyEditor from './3d/Box3DPropertyEditor';
 
 export interface LabelClassAcl {
   canAddEdit: boolean;
@@ -341,20 +342,9 @@ function PropertiesPanel() {
     if (!box) return null;
     return (
       <div className="mt-4 border-t border-[#1e1e2e] pt-4 space-y-2">
-        <div className="text-[10px] text-white/30 uppercase tracking-widest mb-2">Box Properties</div>
-        <div className="grid grid-cols-2 gap-1.5 text-xs">
-          <div className="text-white/40">Center X</div><div className="text-white/70 font-mono">{box.center.x.toFixed(2)}</div>
-          <div className="text-white/40">Center Y</div><div className="text-white/70 font-mono">{box.center.y.toFixed(2)}</div>
-          <div className="text-white/40">Center Z</div><div className="text-white/70 font-mono">{box.center.z.toFixed(2)}</div>
-          <div className="text-white/40">W×H×D</div>
-          <div className="text-white/70 font-mono text-[10px]">
-            {box.size.x.toFixed(1)}×{box.size.y.toFixed(1)}×{box.size.z.toFixed(1)}
-          </div>
-          <div className="text-white/40">Rot Y</div>
-          <div className="text-white/70 font-mono">{(box.rotation.y * 180 / Math.PI).toFixed(1)}°</div>
-          <div className="text-white/40">Locked</div>
-          <div><Switch size="small" checked={box.locked} onChange={(v) => updateBox3d(box.id, { locked: v })} /></div>
-        </div>
+        <div className="text-[10px] text-white/30 uppercase tracking-widest mb-2">3D 框属性</div>
+        <p className="text-[10px] text-white/25 mb-1">视口可拖拽彩色手柄调尺寸，或在此精确输入</p>
+        <Box3DPropertyEditor box={box} updateBox3d={updateBox3d} />
       </div>
     );
   }

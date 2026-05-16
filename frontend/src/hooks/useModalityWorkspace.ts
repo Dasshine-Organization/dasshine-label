@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { message } from 'antd'
+import { notifyDraftSaved } from '../utils/draftSaveNotify'
 import useAuthStore from '../store/authStore'
 import { isDemoTaskId } from '../utils/annotationRoutes'
 import {
@@ -73,7 +74,7 @@ export function useModalityWorkspace(
         await modalityApi.saveWorkspace(taskId, next)
         const at = new Date().toISOString()
         setLastSavedAt(at)
-        if (!silent) message.success('草稿已保存')
+        if (!silent) notifyDraftSaved()
       } catch {
         if (!silent) message.error('保存失败')
       } finally {
