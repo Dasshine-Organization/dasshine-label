@@ -47,9 +47,9 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<Projects />} />
           <Route path="tasks" element={<TaskList />} />
-          <Route path="annotate/:taskId" element={<AnnotationWorkspace />} />
-          <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />
           <Route path="annotate-3d/:taskId" element={<PointCloudAnnotation />} />
+          <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />
+          <Route path="annotate/:taskId" element={<AnnotationWorkspace />} />
         </Route>
       </Routes>
     </>

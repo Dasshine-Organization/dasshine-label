@@ -1,4 +1,12 @@
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import useAuthStore from '../store/authStore'
+import api from '../services/api'
+import type { ProjectSummary } from '../types/project'
+import { resolveProjectAnnotatePath } from '../utils/annotationRoutes'
+import CreateProjectModal from '../components/project/CreateProjectModal'
+import DispatchModal from '../components/project/DispatchModal'
+import DatasetImportModal from '../components/dataset/DatasetImportModal'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -339,7 +347,7 @@ export default function Projects() {
               isAdmin={isAdmin}
               onDispatch={setDispatchTarget}
               onImport={setImportTarget}
-              onNavigate={proj => navigate(`/projects/${proj.id}`)}
+              onNavigate={(p) => navigate(resolveProjectAnnotatePath(p))}
             />
           ))}
         </div>
