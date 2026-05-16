@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
-import api from '../services/api'
+import { authApi } from '../services/api'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -15,18 +15,30 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      // POST /api/v1/auth/login (OAuth2 form)
-      const params = new URLSearchParams()
-      params.append('username', form.username)
-      params.append('password', form.password)
-      const { data } = await api.post('/auth/login', params, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      })
-      // fetch user info
-      const { data: user } = await api.get('/auth/me', {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      })
-      setAuth(user, data.access_token)
+      const { data } = await authApi.login(form.username, form.password)
+      setAuth(
+        {
+          id: data.user.id,
+          username: data.user.username,
+          email: data.user.email ?? '',
+          level: data.user.level ?? 'novice',
+          role: data.user.role,
+          is_admin: data.user.is_admin,
+        },
+        data.access_token,
+      )
+      const { data: me } = await authApi.getMe()
+      setAuth(
+        {
+          id: me.id,
+          username: me.username,
+          email: me.email,
+          level: me.level,
+          role: me.role,
+          is_admin: me.is_admin,
+        },
+        data.access_token,
+      )
       navigate('/')
     } catch (err: any) {
       setError(err?.response?.data?.detail ?? '登录失败，请检查用户名和密码')

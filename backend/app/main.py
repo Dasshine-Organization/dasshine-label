@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api.v1 import auth, projects, tasks, annotations, users, export, auto_label, quality, annotations_3d
+from app.api.v1 import auth, projects, tasks, annotations, users, roles, export, auto_label, quality, annotations_3d
 from app.api.v1 import annotation_drafts, project_labels, task_prelabel, embodied, dataset, modality_workspace
 
 
@@ -50,6 +50,7 @@ def create_application() -> FastAPI:
     # 注册路由
     app.include_router(auth.router, prefix="/api/v1", tags=["认证"])
     app.include_router(users.router, prefix="/api/v1", tags=["用户"])
+    app.include_router(roles.router, prefix="/api/v1", tags=["角色"])
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(dataset.router, prefix="/api/v1")
     app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])

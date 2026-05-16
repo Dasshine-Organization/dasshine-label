@@ -6,9 +6,10 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.core.config import settings
+from app.core.password_policy import validate_password
 from app.core.security import create_access_token, verify_password, get_password_hash
 from app.api.deps import get_db, get_current_user
 from app.models.user import User, UserRole, UserStatus
@@ -18,10 +19,15 @@ router = APIRouter()
 
 # 请求/响应模型
 class UserRegister(BaseModel):
-    username: str
+    username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=6)
     full_name: str | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=6)
 
 
 class UserLogin(BaseModel):
@@ -57,7 +63,11 @@ class UserResponse(BaseModel):
 
 @router.post("/auth/register", response_model=UserResponse)
 def register(user_data: UserRegister, db: Session = Depends(get_db)):
-    """用户注册"""
+    """用户注册（默认标注员角色）"""
+    pwd_err = validate_password(user_data.password)
+    if pwd_err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
+
     # 检查用户名
     if db.query(User).filter(User.username == user_data.username).first():
         raise HTTPException(
@@ -139,6 +149,32 @@ def login(
 def get_me(current_user: User = Depends(get_current_user)):
     """获取当前用户信息"""
     return current_user
+
+
+@router.post("/auth/change-password")
+def change_password(
+    body: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """当前用户修改密码"""
+    if not verify_password(body.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码不正确",
+        )
+    pwd_err = validate_password(body.new_password)
+    if pwd_err:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
+    if body.current_password == body.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="新密码不能与当前密码相同",
+        )
+
+    current_user.hashed_password = get_password_hash(body.new_password)
+    db.commit()
+    return {"message": "密码已更新"}
 
 
 @router.post("/auth/refresh")

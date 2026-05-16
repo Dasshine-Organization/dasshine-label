@@ -1,7 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
-import { AuthGuard, GuestGuard } from './components/AuthGuard'
+import { AuthGuard, GuestGuard, AdminGuard } from './components/AuthGuard'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
@@ -15,6 +15,8 @@ import AudioAnnotation from './pages/AudioAnnotation'
 import VideoAnnotation from './pages/VideoAnnotation'
 import MultimodalAnnotation from './pages/MultimodalAnnotation'
 import Projects from './pages/Projects'
+import Profile from './pages/Profile'
+import UserManagement from './pages/UserManagement'
 import './index.css'
 
 function App() {
@@ -52,6 +54,12 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<Projects />} />
           <Route path="tasks" element={<TaskList />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="users" element={
+            <AdminGuard>
+              <UserManagement />
+            </AdminGuard>
+          } />
           <Route path="annotate-embodied/:taskId" element={<EmbodiedAnnotation />} />
           <Route path="annotate-3d/:taskId" element={<PointCloudAnnotation />} />
           <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />

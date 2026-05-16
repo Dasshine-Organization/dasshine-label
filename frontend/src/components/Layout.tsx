@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
+import { isAdminRole } from '../utils/permissions'
 
 const NAV = [
   {
@@ -25,6 +26,16 @@ const NAV = [
     ),
   },
   {
+    to: '/profile',
+    label: '账户',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+        <circle cx="10" cy="7" r="3" />
+        <path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     to: '/tasks',
     label: '任务',
     icon: (
@@ -36,10 +47,22 @@ const NAV = [
   },
 ]
 
+const ADMIN_NAV = {
+  to: '/users',
+  label: '用户管理',
+  icon: (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+      <path d="M7 8a3 3 0 106 0 3 3 0 00-6 0zM3 17c0-2.8 2.2-5 5-5h4c2.8 0 5 2.2 5 5" strokeLinecap="round" />
+    </svg>
+  ),
+}
+
 export default function Layout() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const showAdmin = user?.is_admin || isAdminRole(user?.role)
+  const navItems = showAdmin ? [...NAV, ADMIN_NAV] : NAV
 
   function handleLogout() {
     logout()
@@ -75,7 +98,7 @@ export default function Layout() {
 
         {/* Nav */}
         <nav className="flex-1 py-3 px-2 space-y-0.5">
-          {NAV.map((item) => (
+          {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

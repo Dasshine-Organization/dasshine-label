@@ -29,10 +29,15 @@ api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      // Token 过期或无效
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
+      const url = error.config?.url ?? ''
+      const isAuthAttempt =
+        url.includes('/auth/login') || url.includes('/auth/register')
+      if (!isAuthAttempt) {
+        localStorage.removeItem('dasshine_auth')
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.href = '/login'
+        }
+      }
     }
     return Promise.reject(error)
   }
@@ -63,6 +68,10 @@ export const authApi = {
 
   // 刷新 token
   refresh: () => api.post('/auth/refresh'),
+
+  // 修改当前用户密码
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    api.post('/auth/change-password', data),
 }
 
 // 项目相关 API
@@ -258,37 +267,57 @@ export { prelabelApi } from './prelabel'
 export { modalityApi } from './modalityAnnotation'
 
 // 用户相关 API
+export interface UserRecord {
+  id: number
+  username: string
+  email: string
+  full_name?: string | null
+  role: string
+  status: string
+  level: string
+  accuracy_score: number
+  completed_tasks: number
+  is_admin: boolean
+}
+
 export const userApi = {
-  // 获取用户列表（管理员）
-  getList: (params?: { skip?: number; limit?: number; role?: string }) =>
-    api.get('/users', { params }),
+  getList: (params?: { skip?: number; limit?: number; role?: string; status?: string }) =>
+    api.get<UserRecord[]>('/users', { params }),
 
-  // 获取用户详情
-  getById: (id: number) => api.get(`/users/${id}`),
+  getById: (id: number) => api.get<UserRecord>(`/users/${id}`),
 
-  // 创建用户（管理员）
   create: (data: {
     username: string
     email: string
     password: string
     full_name?: string
     role?: string
-  }) => api.post('/users', data),
+  }) => api.post<UserRecord>('/users', data),
 
-  // 更新用户
   update: (id: number, data: Partial<{
     full_name: string
     email: string
+    role: string
     status: string
     level: string
     skills: string[]
-  }>) => api.put(`/users/${id}`, data),
+  }>) => api.put<UserRecord>(`/users/${id}`, data),
 
-  // 删除用户
   delete: (id: number) => api.delete(`/users/${id}`),
 
-  // 获取用户统计
+  resetPassword: (id: number, new_password: string) =>
+    api.post(`/users/${id}/reset-password`, { new_password }),
+
   getStats: (id: number) => api.get(`/users/${id}/stats`),
+}
+
+export const rolesApi = {
+  list: () => api.get<{
+    roles: { value: string; label: string; permissions: string[] }[]
+    current_role: string
+    current_permissions: string[]
+    is_admin: boolean
+  }>('/roles'),
 }
 
 export default api
