@@ -7,7 +7,7 @@ const DEMO_IMAGE =
 
 export default function MultimodalAnnotation() {
   const { taskId = '3001' } = useParams<{ taskId: string }>()
-  const { ws, payload, updatePayload, loading, saving, useBackend, persist, submit } =
+  const { ws, payload, updatePayload, loading, saving, lastSavedAt, useBackend, persist, submit } =
     useModalityWorkspace(taskId, 'multimodal', 'image_caption')
 
   const imageUrl = ws?.content.image_url || DEMO_IMAGE
@@ -28,6 +28,7 @@ export default function MultimodalAnnotation() {
       accent="#8b5cf6"
       useBackend={useBackend}
       saving={saving}
+      lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
     >

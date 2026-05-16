@@ -1,5 +1,9 @@
 import useAnnotationStore, { Annotation2D, LabelClass } from '../store/annotationStore'
 
+function draftKey(taskId: string, imageIndex: number) {
+  return `${taskId}:${imageIndex}`
+}
+
 export const IMAGE_SESSION_VERSION = 2 as const
 
 export interface ImageAnnotationSessionV2 {
@@ -48,24 +52,67 @@ export function writeImageSession(session: ImageAnnotationSessionV2) {
 }
 
 /** 将当前画布写入会话并持久化（保留其它帧缓存） */
+/** 将图像会话各帧同步到 annotationStore.drafts，供草稿面板展示 */
+export function syncSessionDraftsToStore(taskId: string): string | null {
+  const session = readImageSession(taskId)
+  if (!session) return null
+
+  const savedAt = session.savedAt
+  const store = useAnnotationStore.getState()
+  const nextDrafts = { ...store.drafts }
+
+  for (const [frameKey, anns] of Object.entries(session.frames)) {
+    const imageIndex = Number.parseInt(frameKey, 10)
+    if (!Number.isFinite(imageIndex)) continue
+    const key = draftKey(taskId, imageIndex)
+    const prev = nextDrafts[key]
+    nextDrafts[key] = {
+      taskId,
+      imageIndex,
+      annotations2d: JSON.parse(JSON.stringify(anns)) as Annotation2D[],
+      boxes3d: prev?.boxes3d ?? [],
+      savedAt,
+      isSubmitted: prev?.isSubmitted ?? false,
+    }
+  }
+
+  const meta = useAnnotationStore.getState().autoSaveMeta
+  useAnnotationStore.setState({
+    drafts: nextDrafts,
+    currentTaskId: taskId,
+    currentImageIndex: session.currentIdx,
+    autoSaveMeta: {
+      ...meta,
+      isDirty: false,
+      lastSavedAt: savedAt,
+      error: null,
+    },
+  })
+
+  return savedAt
+}
+
 export function persistImageSessionSlice(
   taskId: string,
   frameIndex: number,
   currentIdxForMeta: number,
   annotations2d: Annotation2D[],
   labelClasses: LabelClass[]
-) {
+): string {
   const prev = readImageSession(taskId)
   const frames = { ...(prev?.frames ?? {}) }
   frames[String(frameIndex)] = JSON.parse(JSON.stringify(annotations2d)) as Annotation2D[]
+  const savedAt = new Date().toISOString()
   writeImageSession({
     v: 2,
     taskId,
     currentIdx: currentIdxForMeta,
     frames,
     labelClasses: JSON.parse(JSON.stringify(labelClasses)) as LabelClass[],
-    savedAt: new Date().toISOString(),
+    savedAt,
   })
+  syncSessionDraftsToStore(taskId)
+  return savedAt
 }
 
 /** 从会话读取某一帧到 store（清空选择/history） */

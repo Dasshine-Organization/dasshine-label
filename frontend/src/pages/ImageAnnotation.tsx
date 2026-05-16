@@ -21,6 +21,7 @@ import {
   applyFrameToStore,
   persistImageSessionSlice,
   readImageSession,
+  syncSessionDraftsToStore,
 } from '../utils/imageAnnotationSession'
 import {
   canLoadPrelabelModel,
@@ -118,7 +119,23 @@ export default function ImageAnnotation() {
   const { annotations2d, labelClasses } = useAnnotationStore()
   const { hasDraftForFrame } = useDraftManager(taskId)
 
-  useAnnotationHotkeys()
+  const persistNow = useCallback((showSavedToast = false) => {
+    const { annotations2d: a2, labelClasses: lc } = useAnnotationStore.getState()
+    const savedAt = persistImageSessionSlice(taskId, currentIdx, currentIdx, a2, lc)
+    setLastSavedAt(savedAt)
+    if (showSavedToast) {
+      const meta = useAnnotationStore.getState().autoSaveMeta
+      useAnnotationStore.setState({
+        autoSaveMeta: { ...meta, saveCount: meta.saveCount + 1 },
+      })
+    }
+  }, [taskId, currentIdx])
+
+  useAnnotationHotkeys({ onSave: () => persistNow(true) })
+
+  useEffect(() => {
+    useAnnotationStore.getState().setCurrentTask(taskId, currentIdx)
+  }, [taskId, currentIdx])
 
   const refreshModels = useCallback(async () => {
     if (!token) {
@@ -192,13 +209,8 @@ export default function ImageAnnotation() {
     prevIdxRef.current = idx
     setHydrated(true)
     setLastSavedAt(s.savedAt ?? null)
+    syncSessionDraftsToStore(taskId)
   }, [taskId, frameCount])
-
-  const persistNow = useCallback(() => {
-    const { annotations2d: a2, labelClasses: lc } = useAnnotationStore.getState()
-    persistImageSessionSlice(taskId, currentIdx, currentIdx, a2, lc)
-    setLastSavedAt(new Date().toISOString())
-  }, [taskId, currentIdx])
 
   useEffect(() => {
     if (!hydrated) return
@@ -208,6 +220,7 @@ export default function ImageAnnotation() {
       persistImageSessionSlice(taskId, prev, prev, a2, lc)
       applyFrameToStore(currentIdx, taskId)
       setLastSavedAt(new Date().toISOString())
+      syncSessionDraftsToStore(taskId)
     }
     prevIdxRef.current = currentIdx
   }, [currentIdx, taskId, hydrated])
@@ -328,6 +341,11 @@ export default function ImageAnnotation() {
         onNext={goNext}
         onExport={() => setShowExport(v => !v)}
         saveHint={lastSavedAt ? `已保存 ${new Date(lastSavedAt).toLocaleTimeString()}` : undefined}
+        onManualSave={() => persistNow(true)}
+        onSubmit={() => {
+          persistNow(true)
+          message.success({ content: '标注已提交', duration: 2 })
+        }}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -444,6 +462,8 @@ export default function ImageAnnotation() {
 
         <RightPanel
           taskId={taskId}
+          currentImageIndex={currentIdx}
+          onDraftLoad={(draft) => setCurrentIdx(draft.imageIndex)}
           labelClassAcl={
             canAddEditLabels || canDeleteLabels
               ? { canAddEdit: canAddEditLabels, canDelete: canDeleteLabels }

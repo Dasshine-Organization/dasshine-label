@@ -10,7 +10,7 @@ function clipId() {
 
 export default function VideoAnnotation() {
   const { taskId = '3003' } = useParams<{ taskId: string }>()
-  const { ws, payload, updatePayload, loading, saving, useBackend, persist, submit } =
+  const { ws, payload, updatePayload, loading, saving, lastSavedAt, useBackend, persist, submit } =
     useModalityWorkspace(taskId, 'video')
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentSec, setCurrentSec] = useState(0)
@@ -51,6 +51,7 @@ export default function VideoAnnotation() {
       accent="#f59e0b"
       useBackend={useBackend}
       saving={saving}
+      lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
     >

@@ -30,6 +30,7 @@ export function useModalityWorkspace(
   const [payload, setPayload] = useState<ModalityPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [useBackend, setUseBackend] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startRef = useRef(Date.now())
@@ -41,6 +42,7 @@ export function useModalityWorkspace(
         const data = await modalityApi.getWorkspace(taskId)
         setWs(data)
         setPayload(data.payload)
+        setLastSavedAt(data.draft_updated_at ?? null)
         setUseBackend(true)
       } else {
         const data = offlineFor(kind, taskId, annTypeHint)
@@ -68,7 +70,9 @@ export function useModalityWorkspace(
       setSaving(true)
       try {
         await modalityApi.saveWorkspace(taskId, next)
-        if (!silent) message.success('已保存草稿')
+        const at = new Date().toISOString()
+        setLastSavedAt(at)
+        if (!silent) message.success('草稿已保存')
       } catch {
         if (!silent) message.error('保存失败')
       } finally {
@@ -109,6 +113,7 @@ export function useModalityWorkspace(
     updatePayload,
     loading,
     saving,
+    lastSavedAt,
     useBackend,
     persist,
     submit,

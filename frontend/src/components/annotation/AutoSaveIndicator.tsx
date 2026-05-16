@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react'
+import toast from 'react-hot-toast'
 import useAnnotationStore from '../../store/annotationStore'
 
 // ─── AutoSaveIndicator ────────────────────────────────────────────────────────
 // 顶部状态栏里的自动保存状态显示
 
-export default function AutoSaveIndicator() {
+interface Props {
+  /** 2D 图像会话等自定义保存逻辑 */
+  onManualSave?: () => void
+}
+
+export default function AutoSaveIndicator({ onManualSave }: Props) {
   const { autoSaveMeta, saveDraft } = useAnnotationStore()
   const { isDirty, lastSavedAt, saveCount } = autoSaveMeta
   const [justSaved, setJustSaved] = useState(false)
 
-  // Show "已保存" flash for 2s after each save
   useEffect(() => {
     if (saveCount === 0) return
     setJustSaved(true)
+    toast.success('草稿已保存', { id: 'annotation-draft-save', duration: 2000 })
     const t = setTimeout(() => setJustSaved(false), 2000)
     return () => clearTimeout(t)
   }, [saveCount])
@@ -46,7 +52,7 @@ export default function AutoSaveIndicator() {
       {/* Manual save button — only when dirty */}
       {isDirty && (
         <button
-          onClick={saveDraft}
+          onClick={() => (onManualSave ? onManualSave() : saveDraft())}
           className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border
             bg-[#f59e0b]/10 border-[#f59e0b]/30 text-[#f59e0b]
             hover:bg-[#f59e0b]/20 active:scale-95 transition-all"

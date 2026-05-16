@@ -7,6 +7,7 @@ type Props = {
   accent?: string
   useBackend?: boolean
   saving?: boolean
+  lastSavedAt?: string | null
   onSave?: () => void
   onSubmit?: () => void
   children: ReactNode
@@ -18,6 +19,7 @@ export default function ModalityShell({
   accent = '#ec4899',
   useBackend,
   saving,
+  lastSavedAt,
   onSave,
   onSubmit,
   children,
@@ -48,6 +50,11 @@ export default function ModalityShell({
           {useBackend !== undefined && (
             <span className="text-[10px] text-white/30 px-2 py-1 rounded border border-white/10">
               {useBackend ? '已连接后端' : '离线演示'}
+            </span>
+          )}
+          {lastSavedAt && (
+            <span className="text-[10px] text-[#10b981]/80 font-mono" title={lastSavedAt}>
+              已保存 {new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </span>
           )}
           {onSave && (

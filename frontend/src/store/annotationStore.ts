@@ -136,7 +136,8 @@ interface AnnotationState {
 
   // Draft / auto-save
   markDirty: () => void;
-  saveDraft: () => void;
+  /** @returns 是否成功写入草稿 */
+  saveDraft: () => boolean;
   loadDraft: (taskId: string, imageIndex: number) => boolean;
   deleteDraft: (taskId: string, imageIndex: number) => void;
   clearAllDrafts: (taskId?: string) => void;
@@ -205,7 +206,7 @@ const useAnnotationStore = create<AnnotationState>()(
     saveDraft: () => {
       const state = get();
       const taskId = state.currentTaskId;
-      if (!taskId) return;
+      if (!taskId) return false;
       const key = draftKey(taskId, state.currentImageIndex);
       const savedAt = new Date().toISOString();
       const draft: AnnotationDraft = {
@@ -223,6 +224,7 @@ const useAnnotationStore = create<AnnotationState>()(
         s.autoSaveMeta.saveCount += 1;
         s.autoSaveMeta.error = null;
       });
+      return true;
     },
 
     loadDraft: (taskId, imageIndex) => {

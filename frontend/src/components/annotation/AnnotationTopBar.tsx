@@ -26,6 +26,7 @@ interface TopBarProps {
   /** 本地保存时间提示（2D 会话等） */
   saveHint?: string;
   onSubmit?: () => void;
+  onManualSave?: () => void;
 }
 
 export default function AnnotationTopBar({
@@ -37,6 +38,7 @@ export default function AnnotationTopBar({
   onExport,
   saveHint,
   onSubmit,
+  onManualSave,
 }: TopBarProps) {
   const navigate = useNavigate()
   const { mode, setMode, annotations2d, boxes3d, saveDraft } = useAnnotationStore()
@@ -105,7 +107,7 @@ export default function AnnotationTopBar({
       </div>
 
       {/* ── Auto-save indicator ── */}
-      <AutoSaveIndicator />
+      <AutoSaveIndicator onManualSave={onManualSave} />
 
       {/* Spacer */}
       <div className="flex-1" />

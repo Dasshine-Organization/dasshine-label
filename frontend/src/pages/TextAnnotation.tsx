@@ -10,7 +10,7 @@ function uid() {
 
 export default function TextAnnotation() {
   const { taskId = '3001' } = useParams<{ taskId: string }>()
-  const { ws, payload, updatePayload, loading, saving, useBackend, persist, submit } =
+  const { ws, payload, updatePayload, loading, saving, lastSavedAt, useBackend, persist, submit } =
     useModalityWorkspace(taskId, 'text', 'ner')
 
   const [activeLabel, setActiveLabel] = useState('PER')
@@ -80,6 +80,7 @@ export default function TextAnnotation() {
       accent="#ec4899"
       useBackend={useBackend}
       saving={saving}
+      lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
     >

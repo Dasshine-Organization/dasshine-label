@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Slider, Switch, Modal, Input, message } from 'antd';
 import { v4 as uuid } from 'uuid';
-import useAnnotationStore, { LabelClass } from '../../store/annotationStore';
+import useAnnotationStore, { AnnotationDraft, LabelClass } from '../../store/annotationStore';
 import DraftListPanel from './DraftListPanel';
 
 export interface LabelClassAcl {
@@ -16,6 +16,8 @@ interface RightPanelProps {
   labelClassAcl?: LabelClassAcl;
   /** 草稿列表需要任务 ID */
   taskId?: string;
+  currentImageIndex?: number;
+  onDraftLoad?: (draft: AnnotationDraft) => void;
 }
 
 // ─── LabelPanel ───────────────────────────────────────────────────────────────
@@ -387,7 +389,7 @@ function SettingsPanel() {
 
 // ─── RightPanel ───────────────────────────────────────────────────────────────
 
-export default function RightPanel({ labelClassAcl, taskId }: RightPanelProps) {
+export default function RightPanel({ labelClassAcl, taskId, currentImageIndex, onDraftLoad }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<RightPanelTab>('labels');
   const { mode, annotations2d, boxes3d, autoSaveMeta } = useAnnotationStore();
   const count = mode === '2d' ? annotations2d.length : boxes3d.length;
@@ -432,7 +434,13 @@ export default function RightPanel({ labelClassAcl, taskId }: RightPanelProps) {
           mode === '2d' ? <AnnotationList2D /> : <AnnotationList3D />
         )}
         {activeTab === 'drafts' && (
-          taskId ? <DraftListPanel taskId={taskId} /> : (
+          taskId ? (
+            <DraftListPanel
+              taskId={taskId}
+              currentImageIndex={currentImageIndex}
+              onLoad={onDraftLoad}
+            />
+          ) : (
             <div className="text-xs text-white/20 text-center py-6">无任务上下文</div>
           )
         )}

@@ -10,7 +10,7 @@ function segId() {
 
 export default function AudioAnnotation() {
   const { taskId = '3002' } = useParams<{ taskId: string }>()
-  const { ws, payload, updatePayload, loading, saving, useBackend, persist, submit } =
+  const { ws, payload, updatePayload, loading, saving, lastSavedAt, useBackend, persist, submit } =
     useModalityWorkspace(taskId, 'audio')
   const audioRef = useRef<HTMLAudioElement>(null)
   const [currentMs, setCurrentMs] = useState(0)
@@ -58,6 +58,7 @@ export default function AudioAnnotation() {
       accent="#10b981"
       useBackend={useBackend}
       saving={saving}
+      lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
     >

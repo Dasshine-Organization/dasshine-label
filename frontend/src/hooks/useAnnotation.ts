@@ -3,7 +3,7 @@ import useAnnotationStore, { Tool2D, Tool3D } from '../store/annotationStore'
 
 // ─── useAnnotationHotkeys ─────────────────────────────────────────────────────
 
-export function useAnnotationHotkeys() {
+export function useAnnotationHotkeys(options?: { onSave?: () => void }) {
   const store = useAnnotationStore()
 
   useEffect(() => {
@@ -18,7 +18,12 @@ export function useAnnotationHotkeys() {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'z') { e.preventDefault(); undo(); return }
         if (e.key === 'y') { e.preventDefault(); redo(); return }
-        if (e.key === 's') { e.preventDefault(); saveDraft(); return }  // Ctrl+S manual save
+        if (e.key === 's') {
+          e.preventDefault()
+          if (options?.onSave) options.onSave()
+          else saveDraft()
+          return
+        }
       }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -51,7 +56,7 @@ export function useAnnotationHotkeys() {
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [options?.onSave])
 }
 
 // ─── useAutoSave ──────────────────────────────────────────────────────────────
