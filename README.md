@@ -1,4 +1,4 @@
-# Dasshine Label - 智能标注与分发平台
+# Dasshine Label — 智能标注与分发平台
 
 <div align="center">
 
@@ -7,207 +7,236 @@
 ![React](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-336791?style=for-the-badge&logo=postgresql&logoColor=white)
 
-**自动标注 + 智能任务分发 + 多层质量控制**
+**多模态标注 · 项目数据导入 · AI 预标注 · 任务分发与质检**
 
 </div>
 
-## 🌟 核心特性
+---
 
-- 🤖 **AI 自动预标注** - 集成 LLM/OCR，减少 70% 人工工作量
-- 🎯 **智能任务分发** - 多维度评分算法，精准匹配标注员
-- ✨ **科技感界面** - 深色主题，发光效果，专业标注体验
-- 🔒 **三层质检** - 自动规则 → 交叉验证 → 专家审核
-- 📊 **实时监控** - 进度追踪，质量统计，收益管理
+## 功能概览
 
-## 🏗️ 系统架构
+### 项目管理
+
+- 创建 / 编辑项目（图像 2D、点云 3D、文本、语音、视频、多模态、具身等类型）
+- **本地图片 / 文件夹 / ZIP / YOLO** 导入，文件落盘至可配置文件服务（`UPLOAD_DIR` + `FILE_SERVER_BASE_URL`）
+- 项目任务网格预览，点击进入对应标注工作台
+- 项目 **归档 / 恢复 / 删除**（级联删除任务与数据）
+
+### 标注工作台
+
+| 模态 | 路径示例 | 说明 |
+|------|----------|------|
+| 图像 2D | `/annotate/2d/:taskId` | 矩形框、多帧会话、草稿自动保存、2D 预标注模型 |
+| 点云 3D | `/annotate/3d/:taskId` | 3D 框与点标注 |
+| 具身 | `/annotate/embodied/:taskId` | 多路视频 + 关节轨迹 |
+| 文本 / 语音 / 视频 / 多模态 | `/annotate/text|audio|video|multimodal/:taskId` | 服务端工作区草稿与提交 |
+
+### 任务与状态
+
+- 任务领取、开始、提交（API）
+- 2D 标注：**服务端草稿**同步，有标注框时自动标记 `annotating`，提交后 `submitted`
+- 项目任务列表与标注页 **状态实时同步**（无需手动刷新）
+- 顶部栏显示帧进度（已标注帧数 / 总帧数）及项目内上一条 / 下一条任务
+
+### 平台能力
+
+- JWT 登录注册、用户与角色管理
+- 智能任务分发（技能 / 质量 / 负载等多维评分）
+- 质量控制（交叉验证、审核、黄金题等 API）
+- 自动标注与批量预标注（可选 Celery Worker）
+- 导出（COCO / YOLO 等）
+
+---
+
+## 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend (React)                      │
-│  ┌────────────┐ ┌────────────┐ ┌──────────────────────────┐ │
-│  │  登录页面   │ │  工作台     │ │      标注界面             │ │
-│  └────────────┘ └────────────┘ └──────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│                     Backend (FastAPI)                        │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
-│  │   Auth   │ │  Tasks   │ │ Projects │ │  Auto Label    │  │
-│  └──────────┘ └──────────┘ └──────────┘ └────────────────┘  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐  │
-│  │ Dispatch │ │ Quality  │ │  Export  │ │    Review      │  │
-│  └──────────┘ └──────────┘ └──────────┘ └────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────┐
-│              PostgreSQL      Redis      Celery               │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│  Frontend (React + Vite + Ant Design + Zustand)                  │
+│  项目 / 任务列表 · 2D/3D/具身/文本/音视频标注 UI                    │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ /api  /uploads
+┌────────────────────────────▼─────────────────────────────────────┐
+│  Backend (FastAPI)                                               │
+│  auth · projects · dataset · tasks · annotations · drafts          │
+│  prelabel · modality_workspace · embodied · quality · export     │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        ▼                    ▼                    ▼
+   PostgreSQL              Redis              文件存储
+   (业务数据)            (Celery/缓存)        (./uploads)
 ```
 
-## 📦 项目结构
+---
+
+## 项目结构
 
 ```
 dasshine-label/
-├── backend/              # FastAPI 后端
-│   ├── app/
-│   │   ├── api/v1/       # API 路由
-│   │   │   ├── auth.py              # 认证
-│   │   │   ├── tasks.py             # 任务管理
-│   │   │   ├── auto_label.py        # 自动标注
-│   │   │   └── quality.py           # 质量控制 ✅
-│   │   ├── models/       # 数据库模型
-│   │   ├── services/     # 业务逻辑
-│   │   │   ├── task_dispatch.py     # 任务分发算法
-│   │   │   ├── auto_label.py        # 自动标注服务
-│   │   │   └── quality_control.py   # 质量控制 ✅
-│   │   └── tasks/        # Celery 异步任务
-│   └── requirements.txt
-├── frontend/             # React 前端
-│   ├── src/
-│   │   ├── pages/        # 页面组件
-│   │   └── components/
-│   └── package.json
+├── backend/                 # FastAPI
+│   ├── app/api/v1/          # REST API
+│   ├── app/services/        # 业务逻辑（分发、导入、预标注、图像标注等）
+│   ├── alembic/             # 迁移（可选；Docker 默认 init_db 建表）
+│   ├── Dockerfile
+│   └── docker-entrypoint.sh
+├── frontend/                # React SPA
+│   ├── src/pages/           # 页面（Projects、ProjectTasks、ImageAnnotation…）
+│   ├── Dockerfile           # 生产：构建 + Nginx
+│   └── nginx/default.conf
 ├── deploy/
-│   └── docker-compose.yml
-└── docs/                 # 文档
-    ├── task_dispatch.md
-    ├── auto_label.md
-    ├── quality_control.md  ✅
-    └── frontend.md
+│   ├── deploy.sh            # 一键部署脚本
+│   ├── docker-compose.yml   # 生产栈
+│   ├── docker-compose.dev.yml
+│   └── .env.example
+└── docs/                    # 设计文档
 ```
 
-## 🚀 快速开始
+---
 
-### 1. Docker 一键启动
+## 快速开始（Docker 推荐）
+
+### 前置条件
+
+- [Docker](https://docs.docker.com/get-docker/) 20.10+
+- [Docker Compose](https://docs.docker.com/compose/) v2
+
+### 生产部署
 
 ```bash
 cd deploy
-docker-compose up -d
+cp .env.example .env
+# 编辑 .env：至少修改 SECRET_KEY；PUBLIC_URL 改为实际访问地址
+
+chmod +x deploy.sh
+./deploy.sh up -d
 ```
 
-访问：
-- 前端: http://localhost:3000
-- 后端 API: http://localhost:8000
-- API 文档: http://localhost:8000/docs
+| 服务 | 地址 |
+|------|------|
+| **Web 前端** | http://localhost:8080 （由 `HTTP_PORT` 控制） |
+| **API 文档** | http://localhost:8080/docs |
+| PostgreSQL | `localhost:5432`（默认，可按需改端口） |
 
-### 2. 手动启动
+首次访问请 **注册账号**，登录后创建项目并导入数据。
 
-**后端：**
+常用命令：
+
+```bash
+./deploy.sh ps              # 查看状态
+./deploy.sh logs -f backend # 后端日志
+./deploy.sh worker          # 可选：启动 Celery
+./deploy.sh down            # 停止
+./deploy.sh down -v         # 停止并清空数据卷（慎用）
+```
+
+### 开发模式（热重载）
+
+```bash
+cd deploy
+cp .env.example .env
+./deploy.sh dev
+```
+
+- 前端：http://localhost:3000  
+- 后端：http://localhost:8000  
+
+---
+
+## 本地手动启动（不用 Docker）
+
+### 后端
+
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-alembic upgrade head
-uvicorn app.main:app --reload
+# 配置 DATABASE_URL、SECRET_KEY、FILE_SERVER_BASE_URL 等
+
+# PostgreSQL 已就绪后初始化表
+python -c "from app.core.database import init_db; init_db()"
+
+uvicorn app.main:app --reload --port 8000
 ```
 
-**前端：**
+### 前端
+
 ```bash
 cd frontend
-npm install
+npm ci
+# 可选 .env：VITE_API_URL=http://localhost:8000/api/v1
 npm run dev
 ```
 
-**Celery Worker：**
+浏览器打开 http://localhost:3000 。
+
+### Celery（可选）
+
 ```bash
 cd backend
 celery -A app.celery_app worker --loglevel=info
 ```
 
-## 📖 核心功能详解
+---
 
-### 1. 自动标注服务
+## 环境变量说明
 
-```python
-POST /api/v1/auto-label/enable/1
-{
-  "model": "gpt-4",
-  "threshold": 0.8
-}
+后端主要配置见 `backend/.env.example`：
 
-POST /api/v1/auto-label/batch
-{
-  "project_id": 1,
-  "batch_size": 100
-}
-```
+| 变量 | 说明 |
+|------|------|
+| `DATABASE_URL` | PostgreSQL 连接串 |
+| `REDIS_URL` | Redis（Celery） |
+| `SECRET_KEY` | JWT 密钥，**生产必须修改** |
+| `UPLOAD_DIR` | 上传文件目录 |
+| `FILE_SERVER_BASE_URL` | 导入图片后 `data_url` 的公网前缀（需浏览器可访问） |
+| `BACKEND_CORS_ORIGINS` | 允许的前端源，逗号分隔 |
+| `PRELABEL_ENABLE_LOCAL` | 是否启用本地 YOLO 预标注（需安装 ultralytics） |
 
-### 2. 智能任务分发
+Docker 部署使用 `deploy/.env`，其中 `PUBLIC_URL` 会同步写入 `FILE_SERVER_BASE_URL` 与 CORS。
 
-```
-总分 = 技能匹配×0.35 + 历史质量×0.25 + 负载均衡×0.20 
-     + 响应速度×0.10 + 等级加成×0.10
-```
+---
 
-### 3. 质量控制体系
+## 典型工作流（图像 2D）
 
-```
-┌─────────────┐
-│  自动规则   │ → 格式校验、必填检查
-├─────────────┤
-│  交叉验证   │ → Kappa系数、一致率
-├─────────────┤
-│  黄金标准   │ → 10%测试题监控质量
-├─────────────┤
-│  专家审核   │ → 抽样审核、争议仲裁
-└─────────────┘
-```
+1. **项目管理** → 新建 `image_2d` 项目  
+2. **导入数据** → 拖拽本地图片或 ZIP，可选填写文件服务地址  
+3. 进入 **项目任务列表** → 点击缩略图打开标注  
+4. 绘制标注框 → 自动保存草稿，状态变为「标注中」  
+5. 点击 **提交** → 状态变为「已提交」，返回列表自动更新  
 
-**API：**
-```python
-# 计算交叉验证
-POST /api/v1/quality/cross-validation
-{ "task_id": 1001 }
+---
 
-# 获取质量评分
-GET /api/v1/quality/score/{user_id}
+## API 文档
 
-# 审核任务
-POST /api/v1/quality/review
-{
-  "task_id": 1001,
-  "decision": "approved",
-  "score": 95
-}
-```
+本地运行后访问：
 
-## 🔧 配置说明
+- Swagger UI：`/docs`
+- ReDoc：`/redoc`
 
-```env
-# 数据库
-DATABASE_URL=postgresql://user:pass@localhost:5432/dasshine_label
+主要路由前缀：`/api/v1`（认证、项目、任务、数据集导入、标注草稿、预标注、多模态工作区等）。
 
-# Redis
-REDIS_URL=redis://localhost:6379/0
+---
 
-# 自动标注
-OPENAI_API_KEY=sk-xxx
-AUTO_LABEL_CONFIDENCE_THRESHOLD=0.8
-
-# 质量控制
-QUALITY_MIN_AGREEMENT=0.8
-QUALITY_GOLDEN_RATIO=0.1
-```
-
-## 📚 文档
+## 文档目录
 
 - [任务分发算法](docs/task_dispatch.md)
 - [自动标注服务](docs/auto_label.md)
-- [质量控制体系](docs/quality_control.md) ✅ 新增
+- [质量控制体系](docs/quality_control.md)
 - [前端界面说明](docs/frontend.md)
 
-## 🤝 贡献
+---
 
-欢迎提交 Issue 和 PR！
+## 贡献与许可
 
-## 📄 许可证
+欢迎提交 Issue 与 Pull Request。
 
 MIT License
 
 ---
 
 <div align="center">
-Made with ❤️ by Dasshine Team
+Made with care by Dasshine Team
 </div>
