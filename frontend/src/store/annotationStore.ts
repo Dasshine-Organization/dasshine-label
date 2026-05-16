@@ -95,6 +95,12 @@ interface AnnotationState {
   past: { annotations2d: Annotation2D[]; boxes3d: Box3D[] }[];
   future: { annotations2d: Annotation2D[]; boxes3d: Box3D[] }[];
 
+  // Draft / auto-save
+  currentTaskId: string | null;
+  currentImageIndex: number;
+  drafts: Record<string, AnnotationDraft>;
+  autoSaveMeta: AutoSaveMeta;
+
   // Actions – 2D
   setMode: (mode: AnnotationMode) => void;
   setTool2d: (tool: Tool2D) => void;
@@ -127,6 +133,16 @@ interface AnnotationState {
   pushHistory: () => void;
   undo: () => void;
   redo: () => void;
+
+  // Draft / auto-save
+  markDirty: () => void;
+  saveDraft: () => void;
+  loadDraft: (taskId: string, imageIndex: number) => boolean;
+  deleteDraft: (taskId: string, imageIndex: number) => void;
+  clearAllDrafts: (taskId?: string) => void;
+  getDraftList: () => AnnotationDraft[];
+  setCurrentTask: (taskId: string, imageIndex?: number) => void;
+  setCurrentImageIndex: (imageIndex: number) => void;
 }
 
 // ─── Default label classes ────────────────────────────────────────────────────
@@ -149,7 +165,9 @@ function draftKey(taskId: string, imageIndex: number) {
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 const useAnnotationStore = create<AnnotationState>()(
-  immer((set, get) => ({
+  subscribeWithSelector(
+    persist(
+      immer((set, get) => ({
     mode: '2d',
     annotations2d: [],
     activeTool2d: 'bbox',
@@ -165,6 +183,83 @@ const useAnnotationStore = create<AnnotationState>()(
     opacity: 0.3,
     past: [],
     future: [],
+    currentTaskId: null,
+    currentImageIndex: 0,
+    drafts: {},
+    autoSaveMeta: {
+      lastSavedAt: null,
+      isDirty: false,
+      saveCount: 0,
+      error: null,
+    },
+
+    markDirty: () => set((s) => { s.autoSaveMeta.isDirty = true }),
+
+    setCurrentTask: (taskId, imageIndex = 0) => set((s) => {
+      s.currentTaskId = taskId;
+      s.currentImageIndex = imageIndex;
+    }),
+
+    setCurrentImageIndex: (imageIndex) => set((s) => { s.currentImageIndex = imageIndex }),
+
+    saveDraft: () => {
+      const state = get();
+      const taskId = state.currentTaskId;
+      if (!taskId) return;
+      const key = draftKey(taskId, state.currentImageIndex);
+      const savedAt = new Date().toISOString();
+      const draft: AnnotationDraft = {
+        taskId,
+        imageIndex: state.currentImageIndex,
+        annotations2d: JSON.parse(JSON.stringify(state.annotations2d)),
+        boxes3d: JSON.parse(JSON.stringify(state.boxes3d)),
+        savedAt,
+        isSubmitted: false,
+      };
+      set((s) => {
+        s.drafts[key] = draft;
+        s.autoSaveMeta.isDirty = false;
+        s.autoSaveMeta.lastSavedAt = savedAt;
+        s.autoSaveMeta.saveCount += 1;
+        s.autoSaveMeta.error = null;
+      });
+    },
+
+    loadDraft: (taskId, imageIndex) => {
+      const draft = get().drafts[draftKey(taskId, imageIndex)];
+      if (!draft) return false;
+      set((s) => {
+        s.annotations2d = JSON.parse(JSON.stringify(draft.annotations2d));
+        s.boxes3d = JSON.parse(JSON.stringify(draft.boxes3d));
+        s.selectedIds2d = [];
+        s.selectedIds3d = [];
+        s.past = [];
+        s.future = [];
+        s.currentTaskId = taskId;
+        s.currentImageIndex = imageIndex;
+        s.autoSaveMeta.isDirty = false;
+      });
+      return true;
+    },
+
+    deleteDraft: (taskId, imageIndex) => set((s) => {
+      delete s.drafts[draftKey(taskId, imageIndex)];
+    }),
+
+    clearAllDrafts: (taskId) => set((s) => {
+      if (!taskId) {
+        s.drafts = {};
+        return;
+      }
+      for (const k of Object.keys(s.drafts)) {
+        if (k.startsWith(`${taskId}:`)) delete s.drafts[k];
+      }
+    }),
+
+    getDraftList: () =>
+      Object.values(get().drafts).sort(
+        (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
+      ),
 
     setMode: (mode) => set((s) => { s.mode = mode; }),
     setTool2d: (tool) => set((s) => { s.activeTool2d = tool; }),
@@ -172,17 +267,20 @@ const useAnnotationStore = create<AnnotationState>()(
     addAnnotation2d: (ann) => set((s) => {
       get().pushHistory();
       s.annotations2d.push(ann);
+      s.autoSaveMeta.isDirty = true;
     }),
 
     updateAnnotation2d: (id, patch) => set((s) => {
       const idx = s.annotations2d.findIndex((a) => a.id === id);
       if (idx !== -1) Object.assign(s.annotations2d[idx], patch);
+      s.autoSaveMeta.isDirty = true;
     }),
 
     deleteAnnotation2d: (ids) => set((s) => {
       get().pushHistory();
       s.annotations2d = s.annotations2d.filter((a) => !ids.includes(a.id));
       s.selectedIds2d = s.selectedIds2d.filter((id) => !ids.includes(id));
+      s.autoSaveMeta.isDirty = true;
     }),
 
     selectAnnotations2d: (ids) => set((s) => { s.selectedIds2d = ids; }),
@@ -193,17 +291,20 @@ const useAnnotationStore = create<AnnotationState>()(
     addBox3d: (box) => set((s) => {
       get().pushHistory();
       s.boxes3d.push(box);
+      s.autoSaveMeta.isDirty = true;
     }),
 
     updateBox3d: (id, patch) => set((s) => {
       const idx = s.boxes3d.findIndex((b) => b.id === id);
       if (idx !== -1) Object.assign(s.boxes3d[idx], patch);
+      s.autoSaveMeta.isDirty = true;
     }),
 
     deleteBox3d: (ids) => set((s) => {
       get().pushHistory();
       s.boxes3d = s.boxes3d.filter((b) => !ids.includes(b.id));
       s.selectedIds3d = s.selectedIds3d.filter((id) => !ids.includes(id));
+      s.autoSaveMeta.isDirty = true;
     }),
 
     selectBoxes3d: (ids) => set((s) => { s.selectedIds3d = ids; }),
@@ -284,6 +385,7 @@ const useAnnotationStore = create<AnnotationState>()(
       s.past.pop();
       s.annotations2d = prev.annotations2d;
       s.boxes3d = prev.boxes3d;
+      s.autoSaveMeta.isDirty = true;
     }),
 
     redo: () => set((s) => {
@@ -293,8 +395,15 @@ const useAnnotationStore = create<AnnotationState>()(
       s.future.shift();
       s.annotations2d = next.annotations2d;
       s.boxes3d = next.boxes3d;
+      s.autoSaveMeta.isDirty = true;
     }),
-  }))
+      })),
+      {
+        name: 'dasshine-annotation-drafts',
+        partialize: (state) => ({ drafts: state.drafts }),
+      },
+    ),
+  ),
 );
 
 export default useAnnotationStore;

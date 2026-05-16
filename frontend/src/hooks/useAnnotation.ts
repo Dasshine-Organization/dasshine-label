@@ -13,7 +13,7 @@ export function useAnnotationHotkeys() {
 
       const { mode, setTool2d, setTool3d,
               undo, redo, deleteAnnotation2d, deleteBox3d,
-              selectedIds2d, selectedIds3d, labelClasses, setActiveLabel } = store;
+              selectedIds2d, selectedIds3d, labelClasses, setActiveLabel, saveDraft } = store;
 
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'z') { e.preventDefault(); undo(); return }

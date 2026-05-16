@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Progress, Tooltip, message } from 'antd';
+import { Progress, message } from 'antd';
 import useAnnotationStore from '../../store/annotationStore';
+import AutoSaveIndicator from './AutoSaveIndicator';
 
 function useTimer() {
   const [seconds, setSeconds] = useState(0)
@@ -24,6 +25,7 @@ interface TopBarProps {
   onExport?: () => void;
   /** 本地保存时间提示（2D 会话等） */
   saveHint?: string;
+  onSubmit?: () => void;
 }
 
 export default function AnnotationTopBar({
@@ -34,9 +36,10 @@ export default function AnnotationTopBar({
   onNext,
   onExport,
   saveHint,
+  onSubmit,
 }: TopBarProps) {
   const navigate = useNavigate()
-  const { mode, setMode, annotations2d, boxes3d, saveDraft, autoSaveMeta } = useAnnotationStore()
+  const { mode, setMode, annotations2d, boxes3d, saveDraft } = useAnnotationStore()
   const timer = useTimer()
   const [submitting, setSubmitting] = useState(false)
 
@@ -50,7 +53,8 @@ export default function AnnotationTopBar({
     setSubmitting(true)
     setTimeout(() => {
       setSubmitting(false)
-      onSubmit?.()
+      if (onSubmit) onSubmit()
+      else message.success({ content: '标注已提交', className: 'annotation-message' })
     }, 800)
   }
 
@@ -137,7 +141,15 @@ export default function AnnotationTopBar({
           />
           <span className="text-xs text-white/40 font-mono">{progress}%</span>
         </div>
-      )}
+        <button
+          onClick={onNext}
+          className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+            <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      </div>
 
       <div className="w-px h-5 bg-[#1e1e2e]" />
 

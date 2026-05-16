@@ -77,16 +77,18 @@ export interface ProjectCreatePayload {
 export interface ProjectSummary {
   id: number
   name: string
-  cover_color: string
-  category: AnnotationCategory
-  ann_type: AnnotationType
-  status: ProjectStatus
-  total_tasks: number
-  completed_tasks: number
-  approved_tasks: number
-  price_per_task: number
-  member_count: number
-  created_at: string
+  cover_color?: string
+  category?: AnnotationCategory
+  ann_type?: AnnotationType
+  status?: ProjectStatus
+  total_tasks?: number
+  total_items?: number
+  completed_tasks?: number
+  approved_tasks?: number
+  approved_items?: number
+  price_per_task?: number
+  member_count?: number
+  created_at?: string
 }
 
 export interface DispatchRequest {

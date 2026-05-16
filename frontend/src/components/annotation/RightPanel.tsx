@@ -2,15 +2,20 @@ import { useState } from 'react';
 import { Slider, Switch, Modal, Input, message } from 'antd';
 import { v4 as uuid } from 'uuid';
 import useAnnotationStore, { LabelClass } from '../../store/annotationStore';
+import DraftListPanel from './DraftListPanel';
 
 export interface LabelClassAcl {
   canAddEdit: boolean;
   canDelete: boolean;
 }
 
+type RightPanelTab = 'labels' | 'list' | 'drafts' | 'settings';
+
 interface RightPanelProps {
   /** 不传则不展示标签类的新建/编辑/删除 */
   labelClassAcl?: LabelClassAcl;
+  /** 草稿列表需要任务 ID */
+  taskId?: string;
 }
 
 // ─── LabelPanel ───────────────────────────────────────────────────────────────
@@ -382,16 +387,17 @@ function SettingsPanel() {
 
 // ─── RightPanel ───────────────────────────────────────────────────────────────
 
-export default function RightPanel({ labelClassAcl }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<'labels' | 'list' | 'settings'>('labels');
-  const { mode, annotations2d, boxes3d } = useAnnotationStore();
+export default function RightPanel({ labelClassAcl, taskId }: RightPanelProps) {
+  const [activeTab, setActiveTab] = useState<RightPanelTab>('labels');
+  const { mode, annotations2d, boxes3d, autoSaveMeta } = useAnnotationStore();
+  const count = mode === '2d' ? annotations2d.length : boxes3d.length;
 
-  const TABS = [
-    { key: 'labels' as const,   label: '标签' },
-    { key: 'list' as const,     label: `列表(${count})` },
-    { key: 'drafts' as const,   label: '草稿', badge: autoSaveMeta.isDirty },
-    { key: 'settings' as const, label: '设置' },
-  ]
+  const TABS: { key: RightPanelTab; label: string; badge?: boolean }[] = [
+    { key: 'labels', label: '标签' },
+    { key: 'list', label: `列表(${count})` },
+    { key: 'drafts', label: '草稿', badge: autoSaveMeta.isDirty },
+    { key: 'settings', label: '设置' },
+  ];
 
   return (
     <div className="w-60 flex flex-col bg-[#12121a] border-l border-[#1e1e2e] overflow-hidden">
@@ -424,6 +430,11 @@ export default function RightPanel({ labelClassAcl }: RightPanelProps) {
         )}
         {activeTab === 'list' && (
           mode === '2d' ? <AnnotationList2D /> : <AnnotationList3D />
+        )}
+        {activeTab === 'drafts' && (
+          taskId ? <DraftListPanel taskId={taskId} /> : (
+            <div className="text-xs text-white/20 text-center py-6">无任务上下文</div>
+          )
         )}
         {activeTab === 'settings' && <SettingsPanel />}
       </div>

@@ -176,7 +176,10 @@ function StepInfo({
               key={c}
               onClick={() => onChange({ cover_color: c })}
               className={`w-6 h-6 rounded-full transition-all ${form.cover_color === c ? 'ring-2 ring-offset-1 ring-offset-[#12121a] scale-110' : 'hover:scale-110'}`}
-              style={{ background: c, ringColor: c }}
+              style={{
+                background: c,
+                ...(form.cover_color === c ? { boxShadow: `0 0 0 2px ${c}` } : {}),
+              }}
             />
           ))}
           <input

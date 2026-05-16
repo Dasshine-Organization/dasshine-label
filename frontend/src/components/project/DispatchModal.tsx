@@ -15,7 +15,10 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
 
-  const pendingTasks = project.total_tasks - project.completed_tasks - project.approved_tasks
+  const pendingTasks =
+    (project.total_tasks ?? project.total_items ?? 0)
+    - (project.completed_tasks ?? 0)
+    - (project.approved_tasks ?? project.approved_items ?? 0)
 
   const STRATEGIES = [
     { id: 'smart',       label: '智能分派', desc: '综合评分自动选最优标注员', color: '#00d4ff' },

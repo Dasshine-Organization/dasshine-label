@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { message, Select, Button } from 'antd'
 import { v4 as uuid } from 'uuid'
 import useAnnotationStore, { Annotation2D } from '../store/annotationStore'
-import { useAnnotationHotkeys } from '../hooks/useAnnotation'
+import { useAnnotationHotkeys, useDraftManager } from '../hooks/useAnnotation'
 import '../components/annotation/annotation.css'
 
 import AnnotationTopBar from '../components/annotation/AnnotationTopBar'
@@ -88,10 +88,8 @@ export default function ImageAnnotation() {
 
   const [showExport, setShowExport] = useState(false)
   const { annotations2d, labelClasses } = useAnnotationStore()
+  const { hasDraftForFrame } = useDraftManager(taskId)
 
-  const { annotations2d, saveDraft } = useAnnotationStore()
-
-  // Hooks
   useAnnotationHotkeys()
 
   // 首次：从 localStorage 恢复会话（帧索引、标签集、当前帧标注）
@@ -302,6 +300,7 @@ export default function ImageAnnotation() {
           )}
         </div>
         <RightPanel
+          taskId={taskId}
           labelClassAcl={
             canAddEditLabels || canDeleteLabels
               ? { canAddEdit: canAddEditLabels, canDelete: canDeleteLabels }
