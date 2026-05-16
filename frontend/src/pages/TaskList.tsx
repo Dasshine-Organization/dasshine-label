@@ -11,6 +11,8 @@ const MOCK_TASKS = [
   { id: 1004, project: '交通标志识别',     type: '2D BBox', status: 'approved',   priority: 'high',   reward: 0.8 },
   { id: 1005, project: '自动驾驶场景标注', type: '2D BBox', status: 'pending',     priority: 'medium', reward: 0.8 },
   { id: 1006, project: '自动驾驶点云标注', type: '3D Box', status: 'pending',     priority: 'high',   reward: 1.5 },
+  { id: 2001, project: '具身示例 · InSight 机械臂（多视角视频）', type: '动作序列 / 关节扭矩', status: 'pending', priority: 'high', reward: 2.0 },
+  { id: 2002, project: '具身 · ALOHA 制咖啡（四路真实相机）', type: 'LeRobot 多视角同步', status: 'pending', priority: 'high', reward: 2.2 },
 ]
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
