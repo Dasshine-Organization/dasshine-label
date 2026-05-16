@@ -248,6 +248,9 @@ export const qualityApi = {
     api.get(`/quality/agreement/${projectId}`),
 }
 
+// 具身标注 API（详见 services/embodied.ts）
+export { embodiedApi } from './embodied'
+
 // 用户相关 API
 export const userApi = {
   // 获取用户列表（管理员）

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.project import Project
     from app.models.annotation import Annotation
     from app.models.annotation_draft import AnnotationDraft
+    from app.models.embodied import EmbodiedWorkspace
 
 
 class TaskStatus(str, enum.Enum):
@@ -83,6 +84,9 @@ class Task(Base, TimestampMixin):
     annotations: Mapped[List["Annotation"]] = relationship("Annotation", back_populates="task")
     annotation_drafts: Mapped[List["AnnotationDraft"]] = relationship(
         "AnnotationDraft", back_populates="task", cascade="all, delete-orphan"
+    )
+    embodied_workspaces: Mapped[List["EmbodiedWorkspace"]] = relationship(
+        "EmbodiedWorkspace", back_populates="task", cascade="all, delete-orphan"
     )
     reviews: Mapped[List["Review"]] = relationship("Review", back_populates="task")
     

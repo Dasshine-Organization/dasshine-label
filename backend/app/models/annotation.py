@@ -40,6 +40,7 @@ class AnnotationType(str, enum.Enum):
     POLYGON_3D = "polygon_3d"  # 3D多边形
     SENTIMENT = "sentiment"  # 情感分析
     SUMMARY = "summary"      # 摘要
+    ROBOT_ACTION = "robot_action"  # 具身逐帧动作序列
 
 
 class Annotation(Base, TimestampMixin):

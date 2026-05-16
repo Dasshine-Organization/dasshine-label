@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.task import Task
     from app.models.annotation import Annotation
     from app.models.annotation_draft import AnnotationDraft
+    from app.models.embodied import EmbodiedWorkspace
 
 
 class UserRole(str, enum.Enum):
@@ -84,7 +85,10 @@ class User(Base, TimestampMixin):
     annotation_drafts: Mapped[List["AnnotationDraft"]] = relationship(
         "AnnotationDraft", back_populates="user", cascade="all, delete-orphan"
     )
-    
+    embodied_workspaces: Mapped[List["EmbodiedWorkspace"]] = relationship(
+        "EmbodiedWorkspace", back_populates="user", cascade="all, delete-orphan"
+    )
+
     def __repr__(self) -> str:
         return f"<User {self.username} ({self.role})>"
     

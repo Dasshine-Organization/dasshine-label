@@ -4,6 +4,7 @@ import { message } from 'antd'
 import {
   DEFAULT_ACTION_LABELS,
   type ActionLabelDef,
+  type EmbodiedDemoEpisode,
   type FrameAnnotation,
   buildExportPayload,
   frameToTimeSec,
@@ -11,11 +12,27 @@ import {
   jointStatesForFrame,
   timeSecToFrame,
 } from '../mocks/embodiedDemoData'
+import { embodiedApi } from '../services/embodied'
+import useAuthStore from '../store/authStore'
+
+function downloadBlob(blob: Blob, filename: string) {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
 
 export default function EmbodiedAnnotation() {
   const { taskId = 'demo' } = useParams<{ taskId: string }>()
   const navigate = useNavigate()
-  const episode = useMemo(() => getEpisodeForTaskId(taskId), [taskId])
+  const { token } = useAuthStore()
+  const mockEpisode = useMemo(() => getEpisodeForTaskId(taskId), [taskId])
+  const [episode, setEpisode] = useState<EmbodiedDemoEpisode>(mockEpisode)
+  const [useBackend, setUseBackend] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dirtyRef = useRef(false)
   const { streams, totalFrames, clipDurationSec, attribution } = episode
 
   const [frame, setFrame] = useState(0)
@@ -40,20 +57,90 @@ export default function EmbodiedAnnotation() {
   const [failedStreamIds, setFailedStreamIds] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
-    leaderBumped.current = false
-    setVideoSrcOverride({})
-    setFailedStreamIds(new Set())
-    setLabels([...DEFAULT_ACTION_LABELS])
-    setCommittedFrames(new Set())
-    setFrame(0)
-    setStepPlaying(false)
-    setContinuous(false)
-    setFrameActions(
-      Object.fromEntries(
-        Array.from({ length: episode.totalFrames }, (_, i) => [i, { actionId: 'idle' }]),
-      ) as Record<number, FrameAnnotation>,
-    )
-  }, [taskId, episode.totalFrames])
+    setEpisode(mockEpisode)
+    setUseBackend(false)
+    setHydrated(false)
+  }, [taskId, mockEpisode])
+
+  useEffect(() => {
+    if (!token) {
+      setHydrated(true)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [ep, ws] = await Promise.all([
+          embodiedApi.getEpisode(taskId),
+          embodiedApi.getWorkspace(taskId),
+        ])
+        if (cancelled) return
+        setEpisode(ep)
+        setUseBackend(true)
+        setLabels(ws.action_labels.length ? ws.action_labels : [...DEFAULT_ACTION_LABELS])
+        setCommittedFrames(new Set(ws.committed_frames))
+        const actions: Record<number, FrameAnnotation> = {}
+        for (let i = 0; i < ep.totalFrames; i++) {
+          actions[i] = ws.frame_actions[i] ?? { actionId: 'idle' }
+        }
+        setFrameActions(actions)
+        setHydrated(true)
+      } catch {
+        if (!cancelled) {
+          setEpisode(mockEpisode)
+          setUseBackend(false)
+          setHydrated(true)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [taskId, token, mockEpisode])
+
+  const persistWorkspace = useCallback(async () => {
+    if (!useBackend) return
+    try {
+      await embodiedApi.saveWorkspace(taskId, {
+        action_labels: labels,
+        frame_actions: frameActions,
+        committed_frames: [...committedFrames].sort((a, b) => a - b),
+      })
+      dirtyRef.current = false
+    } catch {
+      message.error('保存到服务器失败')
+    }
+  }, [useBackend, taskId, labels, frameActions, committedFrames])
+
+  useEffect(() => {
+    if (!useBackend || !hydrated) return
+    dirtyRef.current = true
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      persistWorkspace()
+    }, 2500)
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [labels, frameActions, committedFrames, useBackend, hydrated, persistWorkspace])
+
+  useEffect(() => {
+    if (hydrated && !useBackend) {
+      leaderBumped.current = false
+      setVideoSrcOverride({})
+      setFailedStreamIds(new Set())
+      setLabels([...DEFAULT_ACTION_LABELS])
+      setCommittedFrames(new Set())
+      setFrame(0)
+      setStepPlaying(false)
+      setContinuous(false)
+      setFrameActions(
+        Object.fromEntries(
+          Array.from({ length: episode.totalFrames }, (_, i) => [i, { actionId: 'idle' }]),
+        ) as Record<number, FrameAnnotation>,
+      )
+    }
+  }, [taskId, episode.totalFrames, hydrated, useBackend])
 
   useEffect(() => {
     frameRef.current = frame
@@ -237,25 +324,49 @@ export default function EmbodiedAnnotation() {
     setLabels(prev => prev.map(l => (l.id === id ? { ...l, label: t } : l)))
   }, [])
 
-  const commitCurrentFrame = useCallback(() => {
+  const commitCurrentFrame = useCallback(async () => {
     setCommittedFrames(prev => {
       const n = new Set(prev)
       n.add(frame)
       return n
     })
+    if (useBackend) {
+      try {
+        await embodiedApi.patchFrame(taskId, frame, { commit: true })
+      } catch {
+        message.warning('本帧已标记，但同步服务器失败')
+      }
+    }
     message.success(`已保存第 ${frame} 帧标注`)
-  }, [frame])
+  }, [frame, useBackend, taskId])
 
-  const uncommitCurrentFrame = useCallback(() => {
+  const uncommitCurrentFrame = useCallback(async () => {
     setCommittedFrames(prev => {
       const n = new Set(prev)
       n.delete(frame)
       return n
     })
+    if (useBackend) {
+      try {
+        await embodiedApi.patchFrame(taskId, frame, { commit: false })
+      } catch {
+        message.warning('已取消标记，但同步服务器失败')
+      }
+    }
     message.info(`已取消第 ${frame} 帧的「已保存」标记`)
-  }, [frame])
+  }, [frame, useBackend, taskId])
 
-  const exportJson = useCallback(() => {
+  const exportJson = useCallback(async () => {
+    if (useBackend) {
+      try {
+        const res = await embodiedApi.exportJson(taskId)
+        downloadBlob(res.data, `embodied_${taskId}_${Date.now()}.json`)
+        message.success('已从服务器导出 JSON')
+        return
+      } catch {
+        message.warning('服务器导出失败，使用本地数据')
+      }
+    }
     const payload = buildExportPayload(
       taskId,
       frameActions,
@@ -264,15 +375,21 @@ export default function EmbodiedAnnotation() {
       [...committedFrames].sort((a, b) => a - b),
     )
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `embodied_${taskId}_${Date.now()}.json`
-    a.click()
-    URL.revokeObjectURL(a.href)
+    downloadBlob(blob, `embodied_${taskId}_${Date.now()}.json`)
     message.success('已导出 JSON')
-  }, [frameActions, taskId, episode, labels, committedFrames])
+  }, [frameActions, taskId, episode, labels, committedFrames, useBackend])
 
-  const exportTorqueCsv = useCallback(() => {
+  const exportTorqueCsv = useCallback(async () => {
+    if (useBackend) {
+      try {
+        const res = await embodiedApi.exportTorqueCsv(taskId)
+        downloadBlob(res.data, `embodied_torque_${taskId}_${Date.now()}.csv`)
+        message.success('已从服务器导出扭矩 CSV')
+        return
+      } catch {
+        message.warning('服务器导出失败，使用本地数据')
+      }
+    }
     const rows = ['frame_index,timestamp_ms,joint,torque_nm']
     for (let i = 0; i < totalFrames; i++) {
       const ts = Math.round((i / Math.max(1, totalFrames - 1)) * clipDurationSec * 1000)
@@ -281,13 +398,9 @@ export default function EmbodiedAnnotation() {
       }
     }
     const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `embodied_torque_${taskId}_${Date.now()}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
+    downloadBlob(blob, `embodied_torque_${taskId}_${Date.now()}.csv`)
     message.success('已导出扭矩 CSV')
-  }, [taskId, totalFrames, clipDurationSec])
+  }, [taskId, totalFrames, clipDurationSec, useBackend])
 
   const toggleContinuous = useCallback(() => {
     setContinuous(c => {
@@ -317,6 +430,7 @@ export default function EmbodiedAnnotation() {
           <div className="min-w-0">
             <div className="text-[10px] text-white/35 uppercase tracking-wider">
               具身标注 · {episode.caseId === 'aloha' ? '多机位真实流' : '视频 mock'}
+              {useBackend ? ' · 已同步服务器' : ''}
             </div>
             <h1 className="text-sm md:text-base font-semibold text-white/90 truncate">{episode.projectName}</h1>
             <div className="text-[11px] text-white/35 font-mono mt-0.5">
