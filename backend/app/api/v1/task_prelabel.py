@@ -1,31 +1,30 @@
 """
-2D 图像任务：预标注模型列表、加载登记、执行预标注（与前端「先加载模型再预标注」对齐）。
+2D 图像任务：预标注模型注册表、加载、推理（本地 / 云服务 / HTTP）
 """
 
 from __future__ import annotations
 
 import time
-import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_current_user, get_db
 from app.models.project import ProjectType
 from app.models.user import User
+from app.services.prelabel.manager import (
+    get_loaded_model_id,
+    list_models_with_status,
+    load_model,
+    run_prelabel,
+    unload_model,
+)
+from app.services.prelabel.registry import get_descriptor, probe_availability
 from app.services.project_acl import can_access_task_workspace, get_task_and_project
 
 router = APIRouter()
-
-# 与前端 PRELABEL_MODELS 对齐；后续可改为读配置或模型注册表
-PRELABEL_MODEL_REGISTRY: List[Dict[str, Any]] = [
-    {"id": "yolov8_coco", "label": "YOLOv8 · COCO 检测", "kind": "supervised"},
-    {"id": "sam_vit_h", "label": "SAM · 无监督分割", "kind": "unsupervised"},
-    {"id": "clip_cluster", "label": "CLIP · 无监督聚类", "kind": "unsupervised"},
-    {"id": "detr_generic", "label": "DETR · 通用检测", "kind": "supervised"},
-]
 
 META_LOADED_MODEL = "loaded_prelabel_model_id"
 
@@ -36,15 +35,62 @@ class PrelabelRegisterBody(BaseModel):
 
 class PrelabelRunBody(BaseModel):
     model_id: Optional[str] = None
-    frame_index: int = Field(0, ge=0, description="当前帧索引，用于演示多帧")
+    frame_index: int = Field(0, ge=0, description="当前帧索引")
+    image_url: Optional[str] = Field(None, description="待检测图片 URL，缺省用任务 data_url")
+
+
+def _ensure_image_project(project) -> None:
+    if project.type not in (
+        ProjectType.OBJECT_DETECTION,
+        ProjectType.IMAGE_SEGMENTATION,
+        ProjectType.IMAGE_CLASSIFICATION,
+        ProjectType.MULTIMODAL,
+    ):
+        raise HTTPException(status_code=400, detail="当前项目类型不支持 2D 图像预标注")
 
 
 @router.get("/prelabel-models")
 def list_prelabel_models(
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """列出可选预标注 / 无监督模型"""
-    return {"models": PRELABEL_MODEL_REGISTRY}
+    """列出预标注模型及真实可用状态（配置探测 + 内存加载状态）"""
+    loaded = get_loaded_model_id(current_user.id)
+    return {"models": list_models_with_status(current_user.id, loaded)}
+
+
+@router.get("/tasks/{task_id}/prelabel/status")
+def task_prelabel_status(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task, _ = get_task_and_project(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if not can_access_task_workspace(db, task, current_user):
+        raise HTTPException(status_code=403, detail="无权访问")
+
+    meta = task.task_metadata or {}
+    registered = meta.get(META_LOADED_MODEL)
+    in_memory = get_loaded_model_id(current_user.id)
+    model_id = in_memory or registered
+    status_info: Optional[Dict[str, Any]] = None
+    if model_id:
+        avail, msg = probe_availability(model_id)
+        desc = get_descriptor(model_id)
+        status_info = {
+            "model_id": model_id,
+            "status": "loaded" if in_memory else avail.value,
+            "status_message": msg,
+            "label": desc.label if desc else model_id,
+            "in_memory": bool(in_memory),
+        }
+    return {
+        "task_id": task_id,
+        "loaded_model": status_info,
+        "models": list_models_with_status(current_user.id, model_id),
+    }
 
 
 @router.post("/tasks/{task_id}/prelabel/load")
@@ -54,100 +100,109 @@ def register_prelabel_model(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """登记当前任务要使用的预标注模型（写入任务 metadata）"""
+    """加载预标注模型到服务端会话（本地权重 / 云 API 预热 / HTTP 校验）"""
     task, project = get_task_and_project(db, task_id)
     if not task or not project:
         raise HTTPException(status_code=404, detail="任务不存在")
     if not can_access_task_workspace(db, task, current_user):
         raise HTTPException(status_code=403, detail="无权操作该任务")
+    _ensure_image_project(project)
 
-    valid_ids = {m["id"] for m in PRELABEL_MODEL_REGISTRY}
-    if body.model_id not in valid_ids:
-        raise HTTPException(status_code=400, detail="未知的模型 ID")
+    try:
+        result = load_model(current_user.id, body.model_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"模型加载失败: {e}") from e
 
     meta = dict(task.task_metadata or {})
     meta[META_LOADED_MODEL] = body.model_id
     meta["loaded_prelabel_model_at"] = time.time()
+    meta["loaded_prelabel_provider"] = result.get("provider")
     task.task_metadata = meta
     db.commit()
-    return {"success": True, "model_id": body.model_id}
+    return result
+
+
+@router.post("/tasks/{task_id}/prelabel/unload")
+def unload_prelabel_model(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task, project = get_task_and_project(db, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if not can_access_task_workspace(db, task, current_user):
+        raise HTTPException(status_code=403, detail="无权操作该任务")
+
+    meta = dict(task.task_metadata or {})
+    model_id = meta.get(META_LOADED_MODEL)
+    if model_id:
+        unload_model(current_user.id, model_id)
+    meta.pop(META_LOADED_MODEL, None)
+    task.task_metadata = meta
+    db.commit()
+    return {"success": True}
 
 
 @router.post("/tasks/{task_id}/prelabel/run")
-def run_task_prelabel(
+async def run_task_prelabel(
     task_id: int,
     body: PrelabelRunBody,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """
-    执行预标注：必须先 load 登记模型，或通过 body.model_id 显式指定（与前端一致时仍以已登记为准）。
-    返回 2D 候选框列表（演示数据），写入 task.pre_label_result。
-    """
+    """对当前图片执行预标注推理"""
     task, project = get_task_and_project(db, task_id)
     if not task or not project:
         raise HTTPException(status_code=404, detail="任务不存在")
     if not can_access_task_workspace(db, task, current_user):
         raise HTTPException(status_code=403, detail="无权操作该任务")
+    _ensure_image_project(project)
 
     meta = dict(task.task_metadata or {})
-    model_id = body.model_id or meta.get(META_LOADED_MODEL)
+    model_id = body.model_id or meta.get(META_LOADED_MODEL) or get_loaded_model_id(current_user.id)
     if not model_id:
-        raise HTTPException(status_code=400, detail="请先加载预标注模型（POST .../prelabel/load）")
+        raise HTTPException(status_code=400, detail="请先加载预标注模型")
 
-    valid_ids = {m["id"] for m in PRELABEL_MODEL_REGISTRY}
-    if model_id not in valid_ids:
-        raise HTTPException(status_code=400, detail="未知的模型 ID")
+    image_url = body.image_url or task.data_url
+    if not image_url:
+        data = task.data or {}
+        image_url = data.get("image_url") or data.get("url")
+    if not image_url:
+        raise HTTPException(status_code=400, detail="缺少图片 URL，请传入 image_url 或配置任务 data_url")
 
-    # 仅图像类项目做 2D 框演示；其它类型返回提示
-    if project.type not in (
-        ProjectType.OBJECT_DETECTION,
-        ProjectType.IMAGE_SEGMENTATION,
-        ProjectType.IMAGE_CLASSIFICATION,
-        ProjectType.MULTIMODAL,
-    ):
-        raise HTTPException(status_code=400, detail="当前项目类型不支持 2D 图像预标注演示")
+    try:
+        result = await run_prelabel(
+            current_user.id, model_id, image_url, body.frame_index
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"预标注推理失败: {e}") from e
 
-    fi = body.frame_index
-    templates: List[List[Dict[str, Any]]] = [
-        [
-            {"label": "car", "color": "#00d4ff", "points": [{"x": 120, "y": 200}, {"x": 360, "y": 380}], "score": 0.94},
-            {"label": "person", "color": "#7c3aed", "points": [{"x": 440, "y": 120}, {"x": 510, "y": 310}], "score": 0.88},
-        ],
-        [
-            {"label": "person", "color": "#7c3aed", "points": [{"x": 80, "y": 150}, {"x": 160, "y": 350}], "score": 0.82},
-            {"label": "car", "color": "#00d4ff", "points": [{"x": 300, "y": 240}, {"x": 550, "y": 400}], "score": 0.95},
-        ],
-    ]
-    tpl = templates[fi % len(templates)]
-    annotations2d = [
-        {
-            "id": str(uuid.uuid4()),
-            "type": "bbox",
-            "label": b["label"],
-            "color": b["color"],
-            "points": b["points"],
-            "visible": True,
-            "locked": False,
-            "score": b["score"],
-            "isAI": True,
-        }
-        for b in tpl
-    ]
-    overall = sum(float(b["score"]) for b in tpl) / max(len(tpl), 1)
     task.pre_label_result = {
-        "model_id": model_id,
-        "frame_index": fi,
-        "annotations2d": annotations2d,
+        "model_id": result.model_id,
+        "frame_index": body.frame_index,
+        "annotations2d": result.annotations2d,
         "generated_at": time.time(),
+        "inference_source": result.inference_source,
+        "message": result.message,
     }
-    task.pre_label_confidence = overall
+    task.pre_label_confidence = result.confidence
     db.commit()
 
     return {
         "success": True,
         "task_id": task_id,
-        "model_id": model_id,
-        "confidence": overall,
-        "annotations2d": annotations2d,
+        "model_id": result.model_id,
+        "confidence": result.confidence,
+        "annotations2d": result.annotations2d,
+        "inference_source": result.inference_source,
+        "message": result.message,
+        "image_width": result.image_width,
+        "image_height": result.image_height,
     }

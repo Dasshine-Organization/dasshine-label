@@ -34,11 +34,10 @@ python-magic==0.4.27
 # 数据处理
 pandas==2.1.3
 numpy==1.26.2
+Pillow==10.1.0
 
-# 机器学习 (可选，用于自动标注)
-# torch==2.1.1
-# transformers==4.35.2
-# onnxruntime==1.16.3
+# 2D 预标注 · 本地 YOLO（可选，按需安装）
+# ultralytics==8.1.0
 
 # 测试
 pytest==7.4.3

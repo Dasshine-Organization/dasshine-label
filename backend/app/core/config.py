@@ -2,6 +2,7 @@
 Dasshine Label - 核心配置模块
 """
 import os
+from pathlib import Path
 from typing import List, Optional, Union
 from pydantic import PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -56,6 +57,23 @@ class Settings(BaseSettings):
     AUTO_LABEL_ENABLED: bool = True
     AUTO_LABEL_CONFIDENCE_THRESHOLD: float = 0.8
     AUTO_LABEL_MODEL_PATH: Optional[str] = None
+
+    # 2D 预标注模型
+    PRELABEL_ENABLE_LOCAL: bool = True
+    PRELABEL_LOCAL_WEIGHTS_DIR: str = "./models"
+    PRELABEL_YOLO_WEIGHTS: str = "yolov8n.pt"
+    PRELABEL_HF_API_TOKEN: Optional[str] = None
+    PRELABEL_HF_MODEL_ID: str = "hustvl/yolos-tiny"
+    PRELABEL_HF_DETR_MODEL_ID: str = "facebook/detr-resnet-50"
+    PRELABEL_HTTP_ENDPOINT: Optional[str] = None
+    PRELABEL_HTTP_API_KEY: Optional[str] = None
+
+    def resolved_yolo_weights_path(self) -> Path:
+        """本地 YOLO 权重路径（存在则用自定义，否则交给 Ultralytics 自动下载）"""
+        custom = Path(self.PRELABEL_LOCAL_WEIGHTS_DIR) / self.PRELABEL_YOLO_WEIGHTS
+        if custom.is_file():
+            return custom
+        return Path(self.PRELABEL_YOLO_WEIGHTS)
     
     # 任务分发
     TASK_DISPATCH_BATCH_SIZE: int = 100

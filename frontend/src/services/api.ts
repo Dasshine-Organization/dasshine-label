@@ -251,6 +251,9 @@ export const qualityApi = {
 // 具身标注 API（详见 services/embodied.ts）
 export { embodiedApi } from './embodied'
 
+// 2D 预标注 API（详见 services/prelabel.ts）
+export { prelabelApi } from './prelabel'
+
 // 用户相关 API
 export const userApi = {
   // 获取用户列表（管理员）
