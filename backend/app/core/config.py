@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     
     # 文件存储
     UPLOAD_DIR: str = "./uploads"
+    # 文件服务对外访问根地址（部署时改为实际域名，默认本机后端）
+    FILE_SERVER_BASE_URL: str = "http://localhost:8000"
     MAX_UPLOAD_SIZE: int = 100 * 1024 * 1024  # 100MB
     ALLOWED_EXTENSIONS: List[str] = [".txt", ".pdf", ".jpg", ".jpeg", ".png", ".json", ".csv", ".jsonl"]
     

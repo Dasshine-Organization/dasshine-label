@@ -2,9 +2,10 @@
 任务管理API
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, joinedload
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_db, get_current_user, get_current_admin
@@ -77,6 +78,9 @@ class TaskReviewRequest(BaseModel):
 
 # ============ API端点 ============
 
+from app.services.task_serializer import task_list_item as _task_list_item
+
+
 @router.get("/tasks", response_model=List[TaskResponse])
 def list_tasks(
     project_id: Optional[int] = None,
@@ -92,13 +96,19 @@ def list_tasks(
     - 管理员：查看所有任务
     - 标注员：查看自己相关的任务
     """
-    from sqlalchemy.orm import joinedload
+    query = db.query(Task).options(
+        joinedload(Task.project),
+        joinedload(Task.assignee),
+    )
 
-    query = db.query(Task).options(joinedload(Task.project))
-    
-    # 非管理员只能看自己的
+    # 非管理员：自己的任务 + 可领取的待分派任务
     if not current_user.is_admin:
-        query = query.filter(Task.assignee_id == current_user.id)
+        query = query.filter(
+            or_(
+                Task.assignee_id == current_user.id,
+                (Task.status == TaskStatus.PENDING) & (Task.assignee_id.is_(None)),
+            )
+        )
     
     # 筛选条件
     if project_id:
@@ -110,37 +120,15 @@ def list_tasks(
     total = query.count()
     tasks = query.offset((page - 1) * page_size).limit(page_size).all()
     
-    # 转换为响应格式
-    result = []
     from app.services.project_service import _get_schema
 
-    for task in tasks:
-        assignee_name = None
-        if task.assignee:
-            assignee_name = task.assignee.username
-        schema = _get_schema(task.project) if task.project else {}
-        category = schema.get("category")
-        ann_type = schema.get("ann_type")
-        result.append({
-            "id": task.id,
-            "project_id": task.project_id,
-            "project": task.project.name if task.project else "",
-            "category": category,
-            "ann_type": ann_type,
-            "type": ann_type or (task.project.type.value if task.project and hasattr(task.project.type, "value") else ""),
-            "status": task.status.value if hasattr(task.status, 'value') else task.status,
-            "priority": task.priority,
-            "assignee_id": task.assignee_id,
-            "assignee_name": assignee_name,
-            "pre_label_confidence": task.pre_label_confidence,
-            "created_at": task.created_at.isoformat() if task.created_at else None,
-            "reward": schema.get("price_per_task", 0.1),
-        })
-    
-    return result
+    return [
+        _task_list_item(task, _get_schema(task.project) if task.project else {})
+        for task in tasks
+    ]
 
 
-@router.get("/tasks/available", response_model=List[TaskResponse])
+@router.get("/tasks/available")
 def get_available_tasks(
     project_id: Optional[int] = None,
     limit: int = Query(10, ge=1, le=50),
@@ -152,54 +140,108 @@ def get_available_tasks(
     
     标注员调用此接口查看可接的任务
     """
-    query = db.query(Task).filter(
-        Task.status == TaskStatus.PENDING,
-        Task.assignee_id.is_(None)
+    from app.services.project_service import _get_schema
+
+    query = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .filter(Task.status == TaskStatus.PENDING, Task.assignee_id.is_(None))
     )
-    
+
     if project_id:
         query = query.filter(Task.project_id == project_id)
-    
+
     tasks = query.order_by(Task.priority.desc()).limit(limit).all()
-    
-    return tasks
+
+    return [
+        _task_list_item(task, _get_schema(task.project) if task.project else {})
+        for task in tasks
+    ]
 
 
-@router.post("/tasks/{task_id}/claim", response_model=TaskResponse)
+@router.get("/tasks/{task_id}")
+def get_task(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取任务详情（含 data_url，供标注页加载图像）"""
+    from app.services.project_acl import can_access_task_workspace
+    from app.services.project_service import _get_schema
+
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .filter(Task.id == task_id)
+        .first()
+    )
+    if not task:
+        raise_not_found("任务不存在")
+
+    if not current_user.is_admin and not can_access_task_workspace(db, task, current_user):
+        if task.assignee_id != current_user.id and task.status != TaskStatus.PENDING:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该任务")
+
+    schema = _get_schema(task.project) if task.project else {}
+    item = _task_list_item(task, schema)
+    item["data"] = task.data or {}
+    item["task_metadata"] = task.task_metadata or {}
+    item["pre_label_result"] = task.pre_label_result
+    return item
+
+
+def _annotator_level_key(user: User) -> str:
+    if user.level is None:
+        return "novice"
+    return user.level.value if hasattr(user.level, "value") else str(user.level)
+
+
+@router.post("/tasks/{task_id}/claim")
 def claim_task(
     task_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     领取任务
     
     标注员主动领取待分配任务
     """
-    task = db.query(Task).filter(Task.id == task_id).first()
+    from app.services.project_service import _get_schema
+
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .filter(Task.id == task_id)
+        .first()
+    )
     if not task:
         raise_not_found("任务不存在")
-    
+
     if task.status != TaskStatus.PENDING or task.assignee_id:
         raise_bad_request("任务已被领取或不可领取")
-    
-    # 检查用户容量
+
     dispatch_service = get_dispatch_service(db)
     current_count = dispatch_service._get_current_task_count(current_user.id)
     max_capacity = dispatch_service.LEVEL_CAPACITY.get(
-        current_user.level.value, 20
+        _annotator_level_key(current_user), 20
     )
-    
+
     if current_count >= max_capacity:
         raise_bad_request(f"您当前已有{current_count}个进行中的任务，达到上限")
-    
-    # 分配任务
+
     assignment = dispatch_service._lock_and_assign(task, current_user)
     if not assignment:
         raise_bad_request("任务领取失败，请重试")
-    
-    db.refresh(task)
-    return task
+
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .filter(Task.id == task_id)
+        .first()
+    )
+    schema = _get_schema(task.project) if task and task.project else {}
+    return _task_list_item(task, schema)
 
 
 @router.post("/tasks/{task_id}/start")

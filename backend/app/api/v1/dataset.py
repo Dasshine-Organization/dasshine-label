@@ -2,6 +2,7 @@
 数据集导入 API
 POST /api/v1/projects/{id}/import/urls       — URL 列表
 POST /api/v1/projects/{id}/import/texts      — 文本列表
+POST /api/v1/projects/{id}/import/files      — 本地图像文件
 POST /api/v1/projects/{id}/import/zip        — ZIP 文件（图像/音频/点云）
 POST /api/v1/projects/{id}/import/coco       — COCO JSON 文件
 POST /api/v1/projects/{id}/import/yolo       — YOLO ZIP
@@ -11,6 +12,7 @@ GET  /api/v1/projects/{id}/import/stats      — 导入统计
 """
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Query
+from app.core.config import settings
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -51,6 +53,17 @@ class JsonlImportRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _is_zip_bytes(content: bytes, filename: Optional[str] = None) -> bool:
+    if filename and filename.lower().endswith(".zip"):
+        return True
+    return len(content) >= 4 and content[:2] == b"PK"
+
+
+def _import_service(db: Session, file_server_base_url: str = "") -> DatasetImportService:
+    base = (file_server_base_url or settings.FILE_SERVER_BASE_URL).strip()
+    return DatasetImportService(db, file_server_base_url=base or None)
+
+
 def _check_project_access(project_id: int, current_user: User, db: Session):
     """Verify project exists and user has access."""
     project = ProjectService(db).get(project_id)
@@ -78,7 +91,7 @@ def import_urls(
     current_user: User = Depends(get_current_user),
 ):
     _check_project_access(project_id, current_user, db)
-    svc = DatasetImportService(db)
+    svc = _import_service(db)
     result = svc.import_from_urls(
         project_id, payload.urls,
         priority=payload.priority,
@@ -97,7 +110,7 @@ def import_texts(
     current_user: User = Depends(get_current_user),
 ):
     _check_project_access(project_id, current_user, db)
-    svc = DatasetImportService(db)
+    svc = _import_service(db)
     result = svc.import_from_texts(
         project_id, payload.texts,
         priority=payload.priority,
@@ -108,25 +121,59 @@ def import_texts(
 
 # ── ZIP file upload ───────────────────────────────────────────────────────────
 
+@router.post("/{project_id}/import/files")
+async def import_local_files(
+    project_id: int,
+    files: List[UploadFile] = File(...),
+    file_server_base_url: str = Form(""),
+    priority: int = Form(5),
+    golden_ratio: float = Form(0.05),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """导入本地图像文件（支持多选或文件夹拖入）"""
+    _check_project_access(project_id, current_user, db)
+    if not files:
+        raise HTTPException(400, "请至少上传一个文件")
+
+    max_size = settings.MAX_UPLOAD_SIZE
+    payload: List[tuple] = []
+    for f in files:
+        content = await f.read()
+        if len(content) > max_size:
+            raise HTTPException(413, f"文件 {f.filename} 超过大小限制")
+        name = f.filename or "image.jpg"
+        payload.append((name, content))
+
+    svc = _import_service(db, file_server_base_url)
+    result = svc.import_local_files(
+        project_id, payload, priority=priority, golden_ratio=golden_ratio
+    )
+    return result.to_dict()
+
+
 @router.post("/{project_id}/import/zip")
 async def import_zip(
     project_id: int,
     file: UploadFile = File(...),
     base_url_prefix: str = Form(""),
+    file_server_base_url: str = Form(""),
     priority: int = Form(5),
     golden_ratio: float = Form(0.05),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _check_project_access(project_id, current_user, db)
-    if not file.filename.endswith(".zip"):
-        raise HTTPException(400, "Only .zip files are supported")
 
     content = await file.read()
+    if not content:
+        raise HTTPException(400, "ZIP 文件为空")
+    if not _is_zip_bytes(content, file.filename):
+        raise HTTPException(400, "请上传有效的 ZIP 压缩包（.zip）")
     if len(content) > 500 * 1024 * 1024:  # 500MB limit
         raise HTTPException(413, "File too large (max 500MB)")
 
-    svc = DatasetImportService(db)
+    svc = _import_service(db, file_server_base_url)
     result = svc.import_zip(
         project_id, content,
         base_url_prefix=base_url_prefix,
@@ -162,7 +209,7 @@ async def import_coco(
     else:
         raise HTTPException(400, "Provide either a file or JSON body")
 
-    svc = DatasetImportService(db)
+    svc = _import_service(db)
     result = svc.import_coco_json(project_id, coco_json, import_annotations=import_anns)
     return result.to_dict()
 
@@ -175,18 +222,19 @@ async def import_yolo(
     file: UploadFile = File(...),
     class_names: str = Form(""),          # comma-separated
     base_url_prefix: str = Form(""),
+    file_server_base_url: str = Form(""),
     priority: int = Form(5),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     _check_project_access(project_id, current_user, db)
-    if not file.filename.endswith(".zip"):
-        raise HTTPException(400, "Only .zip files are supported")
 
     content = await file.read()
+    if not content or not _is_zip_bytes(content, file.filename):
+        raise HTTPException(400, "请上传有效的 YOLO ZIP 压缩包")
     classes = [c.strip() for c in class_names.split(",") if c.strip()]
 
-    svc = DatasetImportService(db)
+    svc = _import_service(db, file_server_base_url)
     result = svc.import_yolo(project_id, content, classes, base_url_prefix, priority)
     return result.to_dict()
 
@@ -211,7 +259,7 @@ async def import_csv(
     except Exception:
         raise HTTPException(400, "Cannot decode file as UTF-8")
 
-    svc = DatasetImportService(db)
+    svc = _import_service(db)
     result = svc.import_csv(
         project_id, csv_str,
         text_column=text_column,
@@ -244,7 +292,7 @@ async def import_jsonl(
     else:
         raise HTTPException(400, "Provide a file or JSON body")
 
-    svc = DatasetImportService(db)
+    svc = _import_service(db)
     result = svc.import_jsonl(project_id, content, priority=priority, golden_ratio=golden_ratio)
     return result.to_dict()
 
@@ -258,4 +306,4 @@ def import_stats(
     current_user: User = Depends(get_current_user),
 ):
     _check_project_access(project_id, current_user, db)
-    return DatasetImportService(db).get_import_stats(project_id)
+    return _import_service(db).get_import_stats(project_id)

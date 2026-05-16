@@ -77,7 +77,7 @@ export const authApi = {
 // 项目相关 API
 export const projectApi = {
   // 获取项目列表
-  getList: (params?: { skip?: number; limit?: number }) =>
+  getList: (params?: { skip?: number; limit?: number; status?: string; category?: string }) =>
     api.get('/projects', { params }),
 
   // 获取项目详情
@@ -97,9 +97,12 @@ export const projectApi = {
     description: string
     status: string
     annotation_schema: Record<string, any>
-  }>) => api.put(`/projects/${id}`, data),
+  }>) => api.patch(`/projects/${id}`, data),
 
-  // 删除项目
+  archive: (id: number) => api.post(`/projects/${id}/archive`),
+
+  restore: (id: number) => api.post(`/projects/${id}/restore`),
+
   delete: (id: number) => api.delete(`/projects/${id}`),
 
   // 添加项目成员
@@ -109,6 +112,11 @@ export const projectApi = {
 
 // 任务相关 API
 export const taskApi = {
+  getById: (taskId: number) => api.get(`/tasks/${taskId}`),
+
+  getProjectTasks: (projectId: number, params?: { page?: number; page_size?: number; status?: string }) =>
+    api.get(`/projects/${projectId}/tasks`, { params }),
+
   // 获取任务列表
   getList: (params?: {
     project_id?: number
@@ -137,6 +145,24 @@ export const taskApi = {
 
   // 获取任务统计
   getStats: (projectId: number) => api.get(`/tasks/stats/${projectId}`),
+
+  /** 2D 图像标注草稿（服务端） */
+  getAnnotationDraft: (taskId: number) =>
+    api.get<{ payload: Record<string, unknown>; task_status?: string }>(
+      `/tasks/${taskId}/annotation-draft`,
+    ),
+
+  saveAnnotationDraft: (taskId: number, payload: Record<string, unknown>) =>
+    api.put<{ task_status?: string }>(`/tasks/${taskId}/annotation-draft`, { payload }),
+
+  submitImageAnnotation: (
+    taskId: number,
+    data: { payload: Record<string, unknown>; work_time: number },
+  ) =>
+    api.post<{ task_status?: string; message?: string }>(
+      `/tasks/${taskId}/image/submit`,
+      data,
+    ),
 }
 
 // 标注相关 API

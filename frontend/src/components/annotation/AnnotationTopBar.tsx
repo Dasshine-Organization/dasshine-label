@@ -20,34 +20,56 @@ interface TopBarProps {
   taskName?: string;
   totalImages?: number;
   currentImage?: number;
+  /** 已有标注框的帧数（用于进度条） */
+  labeledFrames?: number;
   onPrev?: () => void;
   onNext?: () => void;
   onExport?: () => void;
-  /** 本地保存时间提示（2D 会话等） */
   saveHint?: string;
   onSubmit?: () => void;
   onManualSave?: () => void;
+  /** 项目内任务队列（从项目任务列表进入时） */
+  projectTaskIndex?: number;
+  projectTaskTotal?: number;
+  onPrevTask?: () => void;
+  onNextTask?: () => void;
+  taskStatusLabel?: string;
 }
 
 export default function AnnotationTopBar({
   taskName = '任务标注',
   totalImages = 1,
   currentImage = 1,
+  labeledFrames = 0,
   onPrev,
   onNext,
   onExport,
   saveHint,
   onSubmit,
   onManualSave,
+  projectTaskIndex,
+  projectTaskTotal,
+  onPrevTask,
+  onNextTask,
+  taskStatusLabel,
 }: TopBarProps) {
   const navigate = useNavigate()
   const { mode, setMode, annotations2d, boxes3d, saveDraft } = useAnnotationStore()
   const timer = useTimer()
   const [submitting, setSubmitting] = useState(false)
 
+  const total = Math.max(1, totalImages)
+  const current = Math.min(Math.max(1, currentImage), total)
+  const labeled = Math.min(Math.max(0, labeledFrames), total)
   const count2d = annotations2d.length
   const count3d = boxes3d.length
-  const progress = Math.round((currentImage / totalImages) * 100)
+  const completionProgress = Math.round((labeled / total) * 100)
+  const canPrevFrame = current > 1
+  const canNextFrame = current < total
+  const showFrameNav = total > 1
+  const showProjectNav =
+    projectTaskTotal != null && projectTaskTotal > 1 && onPrevTask && onNextTask
+  const projectIdx = (projectTaskIndex ?? 0) + 1
 
   function handleSubmit() {
     // Save draft before submitting
@@ -77,6 +99,11 @@ export default function AnnotationTopBar({
 
       {/* Task name */}
       <span className="text-white/70 text-sm font-medium truncate max-w-48">{taskName}</span>
+      {taskStatusLabel && (
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-white/40 border border-white/10">
+          {taskStatusLabel}
+        </span>
+      )}
 
       <div className="w-px h-5 bg-[#1e1e2e]" />
 
@@ -96,13 +123,19 @@ export default function AnnotationTopBar({
         ))}
       </div>
 
-      {/* Annotation counts */}
+      {/* Annotation counts（当前模式） */}
       <div className="flex items-center gap-1.5 text-xs">
-        <span className="px-2 py-0.5 rounded bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20">
-          2D: {count2d}
-        </span>
-        <span className="px-2 py-0.5 rounded bg-[#7c3aed]/10 text-[#a78bfa] border border-[#7c3aed]/20">
-          3D: {count3d}
+        {mode === '2d' ? (
+          <span className="px-2 py-0.5 rounded bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20">
+            当前帧 {count2d} 个框
+          </span>
+        ) : (
+          <span className="px-2 py-0.5 rounded bg-[#7c3aed]/10 text-[#a78bfa] border border-[#7c3aed]/20">
+            当前帧 {count3d} 个 3D 框
+          </span>
+        )}
+        <span className="px-2 py-0.5 rounded bg-white/5 text-white/45 border border-white/10">
+          已标注 {labeled}/{total} 帧
         </span>
       </div>
 
@@ -121,36 +154,79 @@ export default function AnnotationTopBar({
         </>
       )}
 
-      {/* image navigation */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onPrev}
-          className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-            <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <div className="flex items-center gap-2 min-w-32">
-          <span className="text-xs text-white/40 font-mono">{currentImage}/{totalImages}</span>
+      {showProjectNav && (
+        <>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              disabled={projectIdx <= 1}
+              onClick={onPrevTask}
+              className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all disabled:opacity-25 disabled:pointer-events-none"
+              title="上一条任务"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <span className="text-xs text-white/40 font-mono whitespace-nowrap">
+              任务 {projectIdx}/{projectTaskTotal}
+            </span>
+            <button
+              type="button"
+              disabled={projectIdx >= (projectTaskTotal ?? 1)}
+              onClick={onNextTask}
+              className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all disabled:opacity-25 disabled:pointer-events-none"
+              title="下一条任务"
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+                <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <div className="w-px h-5 bg-[#1e1e2e]" />
+        </>
+      )}
+
+      {/* 帧导航与标注完成进度 */}
+      <div className="flex items-center gap-2 min-w-[180px]">
+        {showFrameNav && (
+          <button
+            type="button"
+            onClick={onPrev}
+            disabled={!canPrevFrame}
+            className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all disabled:opacity-25 disabled:pointer-events-none"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+              <path d="M10 12L6 8l4-4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
+        <div className="flex items-center gap-2 min-w-32 flex-1">
+          <span className="text-xs text-white/40 font-mono whitespace-nowrap">
+            {showFrameNav ? `${current}/${total}` : `共 ${total} 张`}
+          </span>
           <Progress
-            percent={progress}
+            percent={completionProgress}
             showInfo={false}
             size="small"
             strokeColor="#00d4ff"
             trailColor="#1e1e2e"
             className="flex-1 !m-0"
           />
-          <span className="text-xs text-white/40 font-mono">{progress}%</span>
+          <span className="text-xs text-white/40 font-mono">{completionProgress}%</span>
         </div>
-        <button
-          onClick={onNext}
-          className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
-            <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
+        {showFrameNav && (
+          <button
+            type="button"
+            onClick={onNext}
+            disabled={!canNextFrame}
+            className="w-7 h-7 rounded flex items-center justify-center text-white/40 hover:text-white/80 hover:bg-white/5 transition-all disabled:opacity-25 disabled:pointer-events-none"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">
+              <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       <div className="w-px h-5 bg-[#1e1e2e]" />

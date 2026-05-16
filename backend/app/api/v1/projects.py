@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin as require_admin
 from app.api.deps import get_current_user, get_db
 from app.models.project import Project, ProjectMember
+from app.models.task import Task
 from app.models.user import User
+from sqlalchemy.orm import joinedload
 from app.schemas.project_schemas import (
     AddMemberRequest,
     DispatchRequest,
@@ -185,6 +187,51 @@ def list_projects(
     return [_to_summary(p, db) for p in projects]
 
 
+@router.get("/{project_id}/tasks")
+def list_project_tasks(
+    project_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """列出项目下已导入的任务（含预览 URL）"""
+    from app.services.project_acl import can_administrate_project, get_project_member
+    from app.services.project_service import _get_schema
+    from app.services.task_serializer import task_list_item
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    is_member = get_project_member(db, project_id, current_user.id) is not None
+    if not (current_user.is_admin or can_administrate_project(db, project, current_user) or is_member):
+        raise HTTPException(status_code=403, detail="无权查看该项目")
+
+    query = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .filter(Task.project_id == project_id)
+    )
+    if status:
+        query = query.filter(Task.status == status)
+
+    total = query.count()
+    tasks = (
+        query.order_by(Task.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    schema = _get_schema(project)
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [task_list_item(t, schema) for t in tasks],
+    }
+
+
 @router.get("/{project_id}")
 def get_project(
     project_id: int,
@@ -209,8 +256,49 @@ def update_project(
         raise HTTPException(status_code=404, detail="项目不存在")
     if not can_administrate_project(db, project, current_user):
         raise HTTPException(status_code=403, detail="无权修改项目")
-    updated = ProjectService(db).update(project_id, payload)
+    try:
+        updated = ProjectService(db).update(project_id, payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return _to_out(updated)
+
+
+@router.post("/{project_id}/archive")
+def archive_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """归档项目（只读保留，可恢复）"""
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权归档项目")
+    try:
+        updated = ProjectService(db).archive(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"message": "项目已归档", "project": _to_out(updated)}
+
+
+@router.post("/{project_id}/restore")
+def restore_project(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从归档恢复项目"""
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权恢复项目")
+    try:
+        updated = ProjectService(db).restore(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"message": "项目已恢复", "project": _to_out(updated)}
 
 
 @router.delete("/{project_id}")
@@ -224,8 +312,13 @@ def delete_project(
         raise HTTPException(status_code=404, detail="项目不存在")
     if not can_administrate_project(db, project, current_user):
         raise HTTPException(status_code=403, detail="无权删除项目")
-    ProjectService(db).delete(project_id)
-    return {"message": "删除成功"}
+    result = ProjectService(db).delete(project_id)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail="项目不存在")
+    return {
+        "message": "删除成功",
+        "deleted_tasks": result.get("deleted_tasks", 0),
+    }
 
 
 @router.post("/{project_id}/dispatch", response_model=DispatchResult)

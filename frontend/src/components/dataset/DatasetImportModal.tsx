@@ -1,10 +1,14 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { message } from 'antd'
 import api from '../../services/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ImportMethod = 'url' | 'text' | 'zip' | 'coco' | 'yolo' | 'csv' | 'jsonl'
+type ImportMethod = 'url' | 'text' | 'local_files' | 'zip' | 'coco' | 'yolo' | 'csv' | 'jsonl'
+
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,.bmp,.tiff,.gif'
+const DEFAULT_FILE_SERVER =
+  import.meta.env.VITE_FILE_SERVER_URL || 'http://localhost:8000'
 
 interface ImportResult {
   batch_id: string
@@ -39,6 +43,14 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     color: '#ec4899',
     forCategories: ['nlp', 'audio'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M2 4h12M2 7h8M2 10h10M2 13h6" strokeLinecap="round"/></svg>,
+  },
+  {
+    id: 'local_files',
+    label: '本地图片',
+    desc: '拖入文件夹或多张图片（jpg/png/webp 等）',
+    color: '#22d3ee',
+    forCategories: ['image_2d'],
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="5.5" cy="7" r="1.2"/><path d="M2 11l3.5-3.5 2.5 2.5L11 7l3 4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   },
   {
     id: 'zip',
@@ -80,6 +92,163 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M4 4C4 4 2 5 2 8s2 4 2 4M12 4c0 0 2 1 2 4s-2 4-2 4M6 9l1.5-2L9 9l1.5-2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   },
 ]
+
+const IMAGE_EXT_RE = /\.(jpe?g|png|webp|bmp|tiff?|gif)$/i
+
+function isImageFile(file: File) {
+  return IMAGE_EXT_RE.test(file.name)
+}
+
+async function collectImageFilesFromDrop(dt: DataTransfer): Promise<File[]> {
+  const out: File[] = []
+  const items = dt.items
+  if (!items?.length) {
+    return Array.from(dt.files).filter(isImageFile)
+  }
+
+  const readEntry = (entry: FileSystemEntry): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (entry.isFile) {
+        ;(entry as FileSystemFileEntry).file(
+          f => {
+            if (isImageFile(f)) out.push(f)
+            resolve()
+          },
+          reject,
+        )
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader()
+        const readBatch = () => {
+          reader.readEntries(async entries => {
+            if (!entries.length) {
+              resolve()
+              return
+            }
+            for (const e of entries) await readEntry(e)
+            readBatch()
+          }, reject)
+        }
+        readBatch()
+      } else {
+        resolve()
+      }
+    })
+
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry?.()
+    if (entry) await readEntry(entry)
+  }
+  if (!out.length) return Array.from(dt.files).filter(isImageFile)
+  return out
+}
+
+// ─── Multi-image drop zone ────────────────────────────────────────────────────
+
+function MultiImageDropZone({
+  files,
+  onFiles,
+}: {
+  files: File[]
+  onFiles: (files: File[]) => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    const el = folderInputRef.current
+    if (el) {
+      el.setAttribute('webkitdirectory', '')
+      el.setAttribute('directory', '')
+    }
+  }, [])
+
+  const mergeFiles = (incoming: File[]) => {
+    const map = new Map<string, File>()
+    for (const f of [...files, ...incoming]) {
+      const key = `${f.webkitRelativePath || ''}/${f.name}/${f.size}`
+      map.set(key, f)
+    }
+    onFiles([...map.values()])
+  }
+
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={async e => {
+        e.preventDefault()
+        setDragging(false)
+        const picked = await collectImageFilesFromDrop(e.dataTransfer)
+        if (picked.length) mergeFiles(picked)
+      }}
+      className={`
+        border-2 border-dashed rounded-xl p-8 text-center transition-all
+        ${dragging ? 'border-[#00d4ff]/60 bg-[#00d4ff]/5' : 'border-[#1e1e2e] hover:border-white/20 hover:bg-white/[0.02]'}
+      `}
+    >
+      <div className="flex gap-2 mb-3">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex-1 py-2 rounded-lg text-xs border border-[#1e1e2e] text-white/50 hover:border-white/20"
+        >
+          选择图片
+        </button>
+        <button
+          type="button"
+          onClick={() => folderInputRef.current?.click()}
+          className="flex-1 py-2 rounded-lg text-xs border border-[#1e1e2e] text-white/50 hover:border-white/20"
+        >
+          选择文件夹
+        </button>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={e => {
+          const list = Array.from(e.target.files ?? []).filter(isImageFile)
+          if (list.length) mergeFiles(list)
+          e.target.value = ''
+        }}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={e => {
+          const list = Array.from(e.target.files ?? []).filter(isImageFile)
+          if (list.length) mergeFiles(list)
+          e.target.value = ''
+        }}
+      />
+      {files.length > 0 ? (
+        <div className="space-y-2">
+          <div className="text-sm text-[#00d4ff]">已选择 {files.length} 张图片</div>
+          <div className="text-[10px] text-white/30 max-h-16 overflow-y-auto">
+            {files.slice(0, 5).map(f => <div key={f.name}>{f.name}</div>)}
+            {files.length > 5 && <div>… 等 {files.length} 个文件</div>}
+          </div>
+          <div className="text-xs text-white/20">点击继续添加，或拖入更多</div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+            className="w-8 h-8 mx-auto text-white/20">
+            <path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <div className="text-sm text-white/40">拖入图片或整个文件夹</div>
+          <div className="text-xs text-white/20">支持 jpg · png · webp · bmp · tiff · gif</div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─── File drop zone ───────────────────────────────────────────────────────────
 
@@ -170,7 +339,9 @@ function ResultBanner({ result }: { result: ImportResult }) {
 // ─── DatasetImportModal ───────────────────────────────────────────────────────
 
 export default function DatasetImportModal({ projectId, projectName, category, onClose, onImported }: Props) {
-  const [method, setMethod] = useState<ImportMethod>('url')
+  const [method, setMethod] = useState<ImportMethod>(
+    category === 'image_2d' ? 'local_files' : 'url',
+  )
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
 
@@ -178,6 +349,8 @@ export default function DatasetImportModal({ projectId, projectName, category, o
   const [urlText, setUrlText] = useState('')
   const [bodyText, setBodyText] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [localFiles, setLocalFiles] = useState<File[]>([])
+  const [fileServerUrl, setFileServerUrl] = useState(DEFAULT_FILE_SERVER)
   const [classNames, setClassNames] = useState('')
   const [textColumn, setTextColumn] = useState('text')
   const [labelColumn, setLabelColumn] = useState('')
@@ -214,14 +387,36 @@ export default function DatasetImportModal({ projectId, projectName, category, o
         })
         res = data
 
+      } else if (method === 'local_files') {
+        if (!localFiles.length) throw new Error('请至少选择一张图片')
+        const form = new FormData()
+        for (const f of localFiles) {
+          const name = f.webkitRelativePath || f.name
+          form.append('files', f, name)
+        }
+        form.append('file_server_base_url', fileServerUrl.trim())
+        form.append('priority', String(priority))
+        form.append('golden_ratio', String(goldenRatio / 100))
+        const { data } = await api.post(`/projects/${projectId}/import/files`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 300_000,
+        })
+        res = data
+
       } else if (method === 'zip') {
         if (!file) throw new Error('请选择 ZIP 文件')
+        const zipName = file.name.toLowerCase()
+        if (!zipName.endsWith('.zip') && file.type !== 'application/zip' && file.type !== 'application/x-zip-compressed') {
+          throw new Error('请上传 .zip 格式的压缩包')
+        }
         const form = new FormData()
-        form.append('file', file)
+        form.append('file', file, file.name.endsWith('.zip') ? file.name : `${file.name}.zip`)
+        form.append('file_server_base_url', fileServerUrl.trim())
         form.append('priority', String(priority))
         form.append('golden_ratio', String(goldenRatio / 100))
         const { data } = await api.post(`/projects/${projectId}/import/zip`, form, {
           headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 300_000,
         })
         res = data
 
@@ -382,6 +577,26 @@ export default function DatasetImportModal({ projectId, projectName, category, o
                   已输入 {bodyText.split('\n').filter(t => t.trim()).length} 条文本
                 </div>
               </div>
+            )}
+
+            {(method === 'local_files' || method === 'zip') && (
+              <div>
+                <label className="block text-xs text-white/40 mb-1.5">文件服务地址</label>
+                <input
+                  value={fileServerUrl}
+                  onChange={e => setFileServerUrl(e.target.value)}
+                  placeholder="http://localhost:8000"
+                  className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white font-mono
+                    placeholder-white/20 focus:outline-none focus:border-[#00d4ff]/40 transition-all"
+                />
+                <div className="text-[10px] text-white/20 mt-1">
+                  导入后图片 URL 前缀，默认本机后端；生产环境填写实际文件服务域名
+                </div>
+              </div>
+            )}
+
+            {method === 'local_files' && (
+              <MultiImageDropZone files={localFiles} onFiles={setLocalFiles} />
             )}
 
             {/* ZIP */}

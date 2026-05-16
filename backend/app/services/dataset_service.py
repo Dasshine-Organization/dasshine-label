@@ -1,6 +1,7 @@
 """
 数据集导入服务
 支持：
+- 本地图像文件（多文件 / 文件夹拖入）
 - 图像文件夹（ZIP）
 - COCO JSON
 - YOLO TXT
@@ -22,12 +23,13 @@ from sqlalchemy.orm import Session
 
 from app.models.project import Project, ProjectStatus
 from app.models.task import Task, TaskStatus, TaskPriority
+from app.services.file_storage import FileStorageService
 
 logger = logging.getLogger(__name__)
 
 # ── Supported formats ─────────────────────────────────────────────────────────
 
-IMAGE_EXTS  = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+IMAGE_EXTS  = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"}
 AUDIO_EXTS  = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac"}
 VIDEO_EXTS  = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
 PCD_EXTS    = {".pcd", ".bin", ".ply", ".las"}
@@ -57,10 +59,69 @@ class ImportResult:
 
 class DatasetImportService:
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, file_server_base_url: Optional[str] = None):
         self.db = db
+        self.storage = FileStorageService(file_server_base_url)
 
     # ── Entry point ───────────────────────────────────────────────────────────
+
+    def import_local_files(
+        self,
+        project_id: int,
+        files: List[Tuple[str, bytes]],
+        priority: int = 5,
+        golden_ratio: float = 0.05,
+    ) -> ImportResult:
+        """导入本地图像文件，写入文件服务器并创建任务"""
+        result = ImportResult()
+        project = self._get_project(project_id)
+        if not project:
+            result.errors.append(f"Project {project_id} not found")
+            return result
+
+        import random
+
+        valid: List[Tuple[str, bytes]] = []
+        for name, content in files:
+            ext = os.path.splitext(name)[-1].lower()
+            if ext in IMAGE_EXTS:
+                valid.append((name, content))
+            else:
+                result.skipped += 1
+
+        result.total = len(valid)
+        if not valid:
+            result.errors.append("未找到支持的图像文件")
+            return result
+
+        n_golden = max(1, int(len(valid) * golden_ratio))
+        golden_idx = set(random.sample(range(len(valid)), min(n_golden, len(valid))))
+
+        for i, (name, content) in enumerate(valid):
+            try:
+                rel, public_url = self.storage.save_bytes(project_id, name, content)
+                ext = os.path.splitext(name)[-1].lower()
+                task = Task(
+                    project_id=project_id,
+                    data={"filename": os.path.basename(name), "storage_path": rel},
+                    data_url=public_url,
+                    task_metadata={
+                        "source": "local_file_import",
+                        "original_name": name,
+                        "ext": ext,
+                    },
+                    priority=priority,
+                    is_golden=(i in golden_idx),
+                    status=TaskStatus.PENDING,
+                )
+                self.db.add(task)
+                result.success += 1
+            except Exception as e:
+                result.errors.append(f"{name}: {e}")
+
+        project.total_items = (project.total_items or 0) + result.success
+        self.db.commit()
+        return result
 
     def import_from_urls(
         self,
@@ -156,7 +217,7 @@ class DatasetImportService:
     ) -> ImportResult:
         """
         导入 ZIP 包（图像文件夹 / 音频文件夹 / 点云文件夹）
-        文件保存逻辑：实际项目替换为 S3/OSS 上传，此处存相对路径
+        图像/音频/视频/点云文件写入 UPLOAD_DIR，data_url 指向文件服务
         """
         result = ImportResult()
         project = self._get_project(project_id)
@@ -184,12 +245,21 @@ class DatasetImportService:
 
                 for i, (name, ext) in enumerate(valid):
                     try:
-                        # 在实际项目中这里上传到对象存储
-                        fake_url = f"{base_url_prefix}/{name}"
+                        content = zf.read(name)
+                        if ext in IMAGE_EXTS | AUDIO_EXTS | VIDEO_EXTS | PCD_EXTS:
+                            rel, public_url = self.storage.save_bytes(
+                                project_id, os.path.basename(name), content, subdir="zip"
+                            )
+                            data_url = public_url
+                            data = {"filename": os.path.basename(name), "storage_path": rel}
+                        else:
+                            data_url = f"{base_url_prefix.rstrip('/')}/{name}" if base_url_prefix else ""
+                            data = {"filename": name}
+
                         task = Task(
                             project_id=project_id,
-                            data={"filename": name},
-                            data_url=fake_url,
+                            data=data,
+                            data_url=data_url,
                             task_metadata={
                                 "source": "zip_import",
                                 "original_name": name,
@@ -321,7 +391,12 @@ class DatasetImportService:
                 result.total = len(img_files)
                 for stem, img_path in img_files.items():
                     try:
-                        img_url = f"{base_url_prefix}/{img_path}"
+                        img_bytes = zf.read(img_path)
+                        _, img_url = self.storage.save_bytes(
+                            project_id, os.path.basename(img_path), img_bytes, subdir="yolo"
+                        )
+                        if base_url_prefix:
+                            img_url = f"{base_url_prefix.rstrip('/')}/{img_path}"
                         pre_label = None
 
                         if stem in lbl_files:

@@ -70,10 +70,10 @@ export default function TaskList() {
         priority: Number(t.priority ?? 5),
         reward: Number(t.reward ?? 0.1),
       }))
-      if (rows.length) setTasks(rows)
-      else setTasks(MOCK_TASKS)
+      setTasks(rows)
     } catch {
-      setTasks(MOCK_TASKS)
+      if (!token) setTasks(MOCK_TASKS)
+      else setTasks([])
     } finally {
       setLoading(false)
     }

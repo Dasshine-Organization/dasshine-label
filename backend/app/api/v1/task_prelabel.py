@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -29,11 +29,16 @@ router = APIRouter()
 META_LOADED_MODEL = "loaded_prelabel_model_id"
 
 
-class PrelabelRegisterBody(BaseModel):
+class _PrelabelBodyBase(BaseModel):
+    """允许 model_id 字段（Pydantic 默认保护 model_ 命名空间）"""
+    model_config = ConfigDict(protected_namespaces=())
+
+
+class PrelabelRegisterBody(_PrelabelBodyBase):
     model_id: str = Field(..., min_length=1)
 
 
-class PrelabelRunBody(BaseModel):
+class PrelabelRunBody(_PrelabelBodyBase):
     model_id: Optional[str] = None
     frame_index: int = Field(0, ge=0, description="当前帧索引")
     image_url: Optional[str] = Field(None, description="待检测图片 URL，缺省用任务 data_url")

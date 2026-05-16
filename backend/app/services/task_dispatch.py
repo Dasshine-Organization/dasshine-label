@@ -156,7 +156,12 @@ class TaskDispatchService:
         for annotator in annotators:
             # 检查是否还有容量
             current_tasks = self._get_current_task_count(annotator.id)
-            max_capacity = self.LEVEL_CAPACITY.get(annotator.level.value, 20)
+            level_key = (
+                annotator.level.value
+                if annotator.level and hasattr(annotator.level, "value")
+                else (str(annotator.level) if annotator.level else "novice")
+            )
+            max_capacity = self.LEVEL_CAPACITY.get(level_key, 20)
             
             if current_tasks >= max_capacity:
                 continue  # 已满负荷

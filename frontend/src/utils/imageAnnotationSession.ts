@@ -126,3 +126,36 @@ export function applyFrameToStore(frameIndex: number, taskId: string) {
     future: [],
   })
 }
+
+/** 统计已有标注框的帧数（当前帧以 liveAnnotations 为准） */
+/** 导出当前本地会话，用于同步到服务端草稿 */
+export function exportImageSessionPayload(taskId: string): ImageAnnotationSessionV2 | null {
+  const session = readImageSession(taskId)
+  if (!session) return null
+  const { annotations2d, labelClasses } = useAnnotationStore.getState()
+  const frames = { ...session.frames, [String(session.currentIdx)]: annotations2d }
+  return {
+    ...session,
+    frames,
+    labelClasses: JSON.parse(JSON.stringify(labelClasses)) as LabelClass[],
+    savedAt: new Date().toISOString(),
+  }
+}
+
+export function countLabeledFrames(
+  taskId: string,
+  totalFrames: number,
+  currentFrameIndex: number,
+  liveAnnotations?: Annotation2D[],
+): number {
+  const session = readImageSession(taskId)
+  let count = 0
+  for (let i = 0; i < totalFrames; i++) {
+    const anns =
+      i === currentFrameIndex && liveAnnotations
+        ? liveAnnotations
+        : session?.frames[String(i)]
+    if (anns && anns.length > 0) count++
+  }
+  return count
+}

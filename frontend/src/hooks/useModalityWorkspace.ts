@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { message } from 'antd'
 import useAuthStore from '../store/authStore'
+import { isDemoTaskId } from '../utils/annotationRoutes'
 import {
   modalityApi,
   offlineAudioWorkspace,
@@ -38,7 +39,7 @@ export function useModalityWorkspace(
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      if (token && /^\d+$/.test(taskId)) {
+      if (token && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
         const data = await modalityApi.getWorkspace(taskId)
         setWs(data)
         setPayload(data.payload)
@@ -66,7 +67,7 @@ export function useModalityWorkspace(
 
   const persist = useCallback(
     async (next: ModalityPayload, silent = true) => {
-      if (!useBackend || !/^\d+$/.test(taskId)) return
+      if (!useBackend || !/^\d+$/.test(taskId) || isDemoTaskId(taskId)) return
       setSaving(true)
       try {
         await modalityApi.saveWorkspace(taskId, next)
@@ -97,7 +98,7 @@ export function useModalityWorkspace(
 
   const submit = useCallback(async () => {
     if (!payload) return
-    if (useBackend && /^\d+$/.test(taskId)) {
+    if (useBackend && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
       const workTime = Math.round((Date.now() - startRef.current) / 1000)
       await modalityApi.submit(taskId, payload, workTime)
       message.success('已提交标注')

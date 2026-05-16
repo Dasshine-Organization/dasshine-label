@@ -7,6 +7,7 @@ import { resolveProjectAnnotatePath } from '../utils/annotationRoutes'
 import CreateProjectModal from '../components/project/CreateProjectModal'
 import DispatchModal from '../components/project/DispatchModal'
 import DatasetImportModal from '../components/dataset/DatasetImportModal'
+import ProjectManageMenu from '../components/project/ProjectManageMenu'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -33,15 +34,17 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 // ─── ProjectCard ──────────────────────────────────────────────────────────────
 
 function ProjectCard({
-  project, isAdmin,
-  onDispatch, onImport, onNavigate,
+  project, canManage,
+  onDispatch, onImport, onNavigate, onChanged,
 }: {
   project: ProjectSummary
-  isAdmin: boolean
+  canManage: boolean
   onDispatch: (p: ProjectSummary) => void
   onImport: (p: ProjectSummary) => void
   onNavigate: (p: ProjectSummary) => void
+  onChanged: () => void
 }) {
+  const isArchived = project.status === 'archived'
   const cat    = CAT_CONFIG[project.category ?? ''] ?? { label: project.category, color: '#9ba0ad' }
   const st     = STATUS_CONFIG[project.status ?? ''] ?? { label: project.status, color: '#9ba0ad' }
   const color  = project.cover_color ?? '#00d4ff'
@@ -53,8 +56,9 @@ function ProjectCard({
   return (
     <div
       onClick={() => onNavigate(project)}
-      className="relative bg-[#12121a] border border-[#1e1e2e] rounded-2xl overflow-hidden
-        hover:border-white/20 active:scale-[0.99] transition-all group cursor-pointer"
+      className={`relative bg-[#12121a] border border-[#1e1e2e] rounded-2xl overflow-hidden
+        hover:border-white/20 active:scale-[0.99] transition-all group cursor-pointer
+        ${isArchived ? 'opacity-80' : ''}`}
     >
       {/* Accent bar */}
       <div className="h-0.5 w-full" style={{ background: `linear-gradient(90deg, ${color}, ${color}30)` }} />
@@ -77,6 +81,7 @@ function ProjectCard({
               {project.name}
             </h3>
           </div>
+          {canManage && <ProjectManageMenu project={project} onChanged={onChanged} />}
         </div>
 
         {/* Stats */}
@@ -113,7 +118,7 @@ function ProjectCard({
         {/* Action buttons */}
         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all"
           onClick={e => e.stopPropagation()}>
-          {isAdmin && (
+          {canManage && !isArchived && (
             <>
               <button
                 onClick={() => onImport(project)}
@@ -171,6 +176,7 @@ const STATUS_FILTERS = [
   { id: 'active',   label: '进行中' },
   { id: 'paused',   label: '暂停' },
   { id: 'completed',label: '完成' },
+  { id: 'archived',  label: '已归档' },
 ]
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -344,10 +350,11 @@ export default function Projects() {
             <ProjectCard
               key={p.id}
               project={p}
-              isAdmin={isAdmin}
+              canManage={isAdmin}
               onDispatch={setDispatchTarget}
               onImport={setImportTarget}
               onNavigate={(p) => navigate(resolveProjectAnnotatePath(p))}
+              onChanged={fetchProjects}
             />
           ))}
         </div>
@@ -373,7 +380,12 @@ export default function Projects() {
           projectName={importTarget.name}
           category={importTarget.category ?? 'image_2d'}
           onClose={() => setImportTarget(null)}
-          onImported={fetchProjects}
+          onImported={() => {
+            fetchProjects()
+            if (importTarget?.category === 'image_2d' && importTarget.id) {
+              navigate(`/projects/${importTarget.id}/tasks`)
+            }
+          }}
         />
       )}
     </div>

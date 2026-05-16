@@ -2,9 +2,11 @@
 FastAPI主入口
 """
 
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.core.config import settings
 from app.api.v1 import auth, projects, tasks, annotations, users, roles, export, auto_label, quality, annotations_3d
 from app.api.v1 import annotation_drafts, project_labels, task_prelabel, embodied, dataset, modality_workspace
@@ -17,7 +19,6 @@ async def lifespan(app: FastAPI):
     print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} 启动中...")
     
     # 创建上传目录
-    import os
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
     yield
@@ -65,6 +66,10 @@ def create_application() -> FastAPI:
     app.include_router(embodied.router, prefix="/api/v1")
     app.include_router(modality_workspace.router, prefix="/api/v1")
     # app.include_router(projects.router, prefix="/api/v1"， tags=["项目管理"])
+
+    upload_path = os.path.abspath(settings.UPLOAD_DIR)
+    os.makedirs(upload_path, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=upload_path), name="uploads")
 
     @app.get("/")
     async def root():

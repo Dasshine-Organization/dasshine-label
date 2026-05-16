@@ -1,5 +1,5 @@
 import { useParams, useSearchParams } from 'react-router-dom'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { message, Select, Button, Tooltip } from 'antd'
 import useAnnotationStore, { Annotation2D } from '../store/annotationStore'
 import { useAnnotationHotkeys, useDraftManager } from '../hooks/useAnnotation'
@@ -19,16 +19,22 @@ import {
 } from '../utils/imageAnnotationPermissions'
 import {
   applyFrameToStore,
+  countLabeledFrames,
+  exportImageSessionPayload,
   persistImageSessionSlice,
   readImageSession,
   syncSessionDraftsToStore,
 } from '../utils/imageAnnotationSession'
+import { useProjectAnnotationQueue } from '../hooks/useProjectAnnotationQueue'
+import { emitProjectTaskStatus } from '../utils/projectTaskStatus'
 import {
   canLoadPrelabelModel,
   formatPrelabelOptionLabel,
   prelabelApi,
   type PrelabelModelInfo,
 } from '../services/prelabel'
+import { taskApi } from '../services/api'
+import { isDemoTaskId } from '../utils/annotationRoutes'
 
 const MOCK_IMAGES = [
   'https://images.unsplash.com/photo-1545558014-8692077e9b5c?w=1280&q=80',
@@ -64,6 +70,14 @@ function offlineDemoAnnotations(idx: number): Annotation2D[] {
   }))
 }
 
+const TASK_STATUS_LABEL: Record<string, string> = {
+  pending: '待领取',
+  assigned: '已分配',
+  annotating: '标注中',
+  submitted: '已提交',
+  approved: '已通过',
+}
+
 const FALLBACK_MODELS: PrelabelModelInfo[] = [
   {
     id: 'demo_template',
@@ -94,17 +108,32 @@ export default function ImageAnnotation() {
   const [searchParams] = useSearchParams()
   const pm = parseProjectMemberRole(searchParams.get('pm'))
   const creatorParam = searchParams.get('creator')
+  const projectId = searchParams.get('projectId')
   const { user, token } = useAuthStore()
+  const projectQueue = useProjectAnnotationQueue(projectId, taskId)
 
   const isProjectOwner = resolveIsProjectOwner(user, pm, creatorParam)
   const canAddEditLabels = canAddOrEditLabelClasses(user, pm)
   const canDeleteLabels = canDeleteLabelClasses(user, isProjectOwner)
 
-  const frameCount = MOCK_IMAGES.length
+  const [taskImageUrl, setTaskImageUrl] = useState<string | null>(null)
+  const [taskImageName, setTaskImageName] = useState<string | null>(null)
+  const [, setTaskLoading] = useState(false)
+  const imageSources = taskImageUrl ? [taskImageUrl] : MOCK_IMAGES
+  const frameCount = imageSources.length
   const [currentIdx, setCurrentIdx] = useState(0)
   const [hydrated, setHydrated] = useState(false)
   const prevIdxRef = useRef<number | null>(null)
+  const workStartRef = useRef(Date.now())
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+
+  const numericTaskId = Number(taskId)
+  const useBackendTask =
+    Boolean(token) &&
+    Number.isFinite(numericTaskId) &&
+    numericTaskId > 0 &&
+    !isDemoTaskId(taskId)
 
   const [models, setModels] = useState<PrelabelModelInfo[]>(FALLBACK_MODELS)
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -119,6 +148,36 @@ export default function ImageAnnotation() {
   const { annotations2d, labelClasses } = useAnnotationStore()
   const { hasDraftForFrame } = useDraftManager(taskId)
 
+  const notifyTaskStatus = useCallback(
+    (status: string) => {
+      if (!useBackendTask) return
+      projectQueue.patchTaskStatus(numericTaskId, status)
+      if (projectId) {
+        emitProjectTaskStatus({
+          projectId: Number(projectId),
+          taskId: numericTaskId,
+          status,
+        })
+      }
+    },
+    [useBackendTask, projectQueue, numericTaskId, projectId],
+  )
+
+  const syncToServer = useCallback(async () => {
+    if (!useBackendTask) return
+    const payload = exportImageSessionPayload(taskId)
+    if (!payload) return
+    try {
+      const { data } = await taskApi.saveAnnotationDraft(
+        numericTaskId,
+        payload as unknown as Record<string, unknown>,
+      )
+      if (data.task_status) notifyTaskStatus(data.task_status)
+    } catch {
+      /* 离线或网络异常时保留本地会话 */
+    }
+  }, [useBackendTask, taskId, numericTaskId, notifyTaskStatus])
+
   const persistNow = useCallback((showSavedToast = false) => {
     const { annotations2d: a2, labelClasses: lc } = useAnnotationStore.getState()
     const savedAt = persistImageSessionSlice(taskId, currentIdx, currentIdx, a2, lc)
@@ -129,13 +188,89 @@ export default function ImageAnnotation() {
         autoSaveMeta: { ...meta, saveCount: meta.saveCount + 1 },
       })
     }
-  }, [taskId, currentIdx])
+    if (useBackendTask) {
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current)
+      syncTimerRef.current = setTimeout(() => {
+        void syncToServer()
+      }, 800)
+    }
+  }, [taskId, currentIdx, useBackendTask, syncToServer])
+
+  const handleSubmit = useCallback(async () => {
+    persistNow(true)
+    if (!useBackendTask) {
+      message.success({ content: '标注已提交', duration: 2 })
+      return
+    }
+    const payload = exportImageSessionPayload(taskId)
+    if (!payload) {
+      message.warning('暂无标注内容可提交')
+      return
+    }
+    try {
+      const workTime = Math.round((Date.now() - workStartRef.current) / 1000)
+      const { data } = await taskApi.submitImageAnnotation(numericTaskId, {
+        payload: payload as unknown as Record<string, unknown>,
+        work_time: workTime,
+      })
+      if (data.task_status) notifyTaskStatus(data.task_status)
+      await projectQueue.refreshTasks()
+      message.success({ content: data.message ?? '标注已提交', duration: 2 })
+    } catch (err: unknown) {
+      const detail =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        '提交失败'
+      message.error(detail)
+    }
+  }, [
+    persistNow,
+    useBackendTask,
+    taskId,
+    numericTaskId,
+    notifyTaskStatus,
+    projectQueue.refreshTasks,
+  ])
+
+  useEffect(() => {
+    workStartRef.current = Date.now()
+  }, [taskId])
 
   useAnnotationHotkeys({ onSave: () => persistNow(true) })
 
   useEffect(() => {
     useAnnotationStore.getState().setCurrentTask(taskId, currentIdx)
   }, [taskId, currentIdx])
+
+  useEffect(() => {
+    const id = Number(taskId)
+    if (!token || !Number.isFinite(id) || id <= 0 || isDemoTaskId(taskId)) {
+      setTaskImageUrl(null)
+      setTaskImageName(null)
+      return
+    }
+    let cancelled = false
+    setTaskLoading(true)
+    taskApi
+      .getById(id)
+      .then(({ data }) => {
+        if (cancelled) return
+        if (data.data_url) {
+          setTaskImageUrl(data.data_url)
+          setTaskImageName(data.filename ?? `task_${id}`)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTaskImageUrl(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setTaskLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [taskId, token])
 
   const refreshModels = useCallback(async () => {
     if (!token) {
@@ -239,11 +374,12 @@ export default function ImageAnnotation() {
     return () => window.clearInterval(id)
   }, [hydrated, persistNow])
 
-  const currentImage = MOCK_IMAGES[currentIdx % MOCK_IMAGES.length]
-  const imageName = `frame_${String(currentIdx + 1).padStart(4, '0')}.jpg`
+  const currentImage = imageSources[currentIdx % imageSources.length]
+  const imageName =
+    taskImageName ?? `frame_${String(currentIdx + 1).padStart(4, '0')}.jpg`
 
   const goNext = () => {
-    setCurrentIdx(i => Math.min(i + 1, MOCK_IMAGES.length - 1))
+    setCurrentIdx(i => Math.min(i + 1, imageSources.length - 1))
   }
   const goPrev = () => {
     setCurrentIdx(i => Math.max(i - 1, 0))
@@ -326,6 +462,19 @@ export default function ImageAnnotation() {
     }
   }
 
+  const labeledFrames = useMemo(
+    () => countLabeledFrames(taskId, frameCount, currentIdx, annotations2d),
+    [taskId, frameCount, currentIdx, annotations2d],
+  )
+
+  const otherFrameDrafts = useMemo(
+    () =>
+      Array.from({ length: frameCount }, (_, i) => i).filter(
+        i => i !== currentIdx && hasDraftForFrame(i),
+      ).length,
+    [frameCount, currentIdx, hasDraftForFrame],
+  )
+
   const aiCount = annotations2d.filter(a => a.isAI).length
   const manualCount = annotations2d.filter(a => !a.isAI).length
   const canPrelabel = Boolean(loadedModelId) && !aiLoading && !modelLoading
@@ -334,18 +483,29 @@ export default function ImageAnnotation() {
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden select-none">
       <AnnotationTopBar
-        taskName={`Task #${taskId} — 2D 图像标注`}
-        totalImages={MOCK_IMAGES.length}
+        taskName={
+          taskImageName
+            ? taskImageName
+            : `Task #${taskId} — 2D 图像标注`
+        }
+        totalImages={frameCount}
         currentImage={currentIdx + 1}
+        labeledFrames={labeledFrames}
         onPrev={goPrev}
         onNext={goNext}
         onExport={() => setShowExport(v => !v)}
         saveHint={lastSavedAt ? `已保存 ${new Date(lastSavedAt).toLocaleTimeString()}` : undefined}
         onManualSave={() => persistNow(true)}
-        onSubmit={() => {
-          persistNow(true)
-          message.success({ content: '标注已提交', duration: 2 })
-        }}
+        onSubmit={() => void handleSubmit()}
+        projectTaskIndex={projectQueue.hasQueue ? projectQueue.taskIndex : undefined}
+        projectTaskTotal={projectQueue.hasQueue ? projectQueue.taskTotal : undefined}
+        onPrevTask={projectQueue.hasQueue ? projectQueue.goPrevTask : undefined}
+        onNextTask={projectQueue.hasQueue ? projectQueue.goNextTask : undefined}
+        taskStatusLabel={
+          projectQueue.currentTask?.status
+            ? TASK_STATUS_LABEL[projectQueue.currentTask.status] ?? projectQueue.currentTask.status
+            : undefined
+        }
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -437,7 +597,7 @@ export default function ImageAnnotation() {
               </div>
             )}
 
-            {MOCK_IMAGES.map((_, i) => i).filter(i => i !== currentIdx && hasDraftForFrame(i)).length > 0 && (
+            {otherFrameDrafts > 0 && (
               <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-sm border border-[#f59e0b]/20 text-[#f59e0b]/60 text-[10px] px-2 py-1.5 rounded-lg">
                 <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
                   <path d="M2 2h8v8H2V2zM4 2v3h4V2M3.5 8h5" strokeLinecap="round" />

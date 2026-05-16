@@ -7,14 +7,14 @@ import uuid as uuid_lib
 import logging
 import random
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.models.user import User, AnnotatorLevel
 from app.models.project import Project, ProjectMember, ProjectStatus
-from app.models.task import Task, TaskStatus, TaskPriority
+from app.models.task import Task, TaskStatus, TaskPriority, Review, TaskAssignment
 from app.schemas.project_schemas import (
     ProjectCreate, ProjectUpdate, DispatchRequest,
     TaskBulkCreate, DispatchStrategy,
@@ -143,7 +143,10 @@ class ProjectService:
     ) -> List[Project]:
         q = self.db.query(Project)
         if status:
-            q = q.filter(Project.status == status)
+            try:
+                q = q.filter(Project.status == ProjectStatus(status))
+            except ValueError:
+                logger.warning("Unknown project status filter: %s", status)
         if user_id:
             member_project_ids = (
                 self.db.query(ProjectMember.project_id)
@@ -169,7 +172,10 @@ class ProjectService:
         if payload.description is not None:
             project.description = payload.description
         if payload.status is not None:
-            project.status = payload.status
+            try:
+                project.status = ProjectStatus(payload.status)
+            except ValueError as e:
+                raise ValueError(f"无效的项目状态: {payload.status}") from e
         if payload.auto_label_enabled is not None:
             project.auto_label_enabled = payload.auto_label_enabled
         if payload.auto_label_model is not None:
@@ -198,13 +204,74 @@ class ProjectService:
         self.db.refresh(project)
         return project
 
-    def delete(self, project_id: int) -> bool:
+    def archive(self, project_id: int) -> Project:
         project = self.get(project_id)
         if not project:
-            return False
+            raise ValueError(f"Project {project_id} not found")
+        if project.status == ProjectStatus.ARCHIVED:
+            return project
+
+        schema = _get_schema(project)
+        prev = project.status.value if hasattr(project.status, "value") else str(project.status)
+        schema["status_before_archive"] = prev
+        schema["archived_at"] = datetime.now(timezone.utc).isoformat()
+        project.annotation_schema = schema
+        project.status = ProjectStatus.ARCHIVED
+        project.end_date = datetime.now(timezone.utc)
+        self.db.commit()
+        self.db.refresh(project)
+        logger.info("Project archived id=%d", project_id)
+        return project
+
+    def restore(self, project_id: int) -> Project:
+        project = self.get(project_id)
+        if not project:
+            raise ValueError(f"Project {project_id} not found")
+        if project.status != ProjectStatus.ARCHIVED:
+            raise ValueError("项目未处于归档状态")
+
+        schema = _get_schema(project)
+        prev = schema.pop("status_before_archive", None) or ProjectStatus.PAUSED.value
+        schema.pop("archived_at", None)
+        project.annotation_schema = schema
+        try:
+            project.status = ProjectStatus(prev)
+        except ValueError:
+            project.status = ProjectStatus.PAUSED
+        project.end_date = None
+        self.db.commit()
+        self.db.refresh(project)
+        logger.info("Project restored id=%d status=%s", project_id, project.status)
+        return project
+
+    def delete(self, project_id: int) -> Dict[str, Any]:
+        """删除项目及其任务、成员（级联清理关联表）"""
+        project = self.get(project_id)
+        if not project:
+            return {"ok": False, "reason": "not_found"}
+
+        task_ids = [
+            row[0]
+            for row in self.db.query(Task.id).filter(Task.project_id == project_id).all()
+        ]
+        if task_ids:
+            self.db.query(Review).filter(Review.task_id.in_(task_ids)).delete(
+                synchronize_session=False
+            )
+            self.db.query(TaskAssignment).filter(
+                TaskAssignment.task_id.in_(task_ids)
+            ).delete(synchronize_session=False)
+            self.db.query(Task).filter(Task.project_id == project_id).delete(
+                synchronize_session=False
+            )
+
+        self.db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id
+        ).delete(synchronize_session=False)
         self.db.delete(project)
         self.db.commit()
-        return True
+        logger.info("Project deleted id=%d tasks=%d", project_id, len(task_ids))
+        return {"ok": True, "deleted_tasks": len(task_ids)}
 
     def activate(self, project_id: int) -> Project:
         p = self.get(project_id)

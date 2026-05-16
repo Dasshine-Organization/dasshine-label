@@ -20,6 +20,16 @@ export type AnnotationWorkspaceMode =
   | 'multimodal'
 
 /** 演示任务元数据（后续可改为 API 返回） */
+export const DEMO_TASK_IDS = new Set([
+  '1001', '1002', '1003', '1004', '1005', '1006',
+  '2001', '2002', 'demo',
+  '3001', '3002', '3003',
+])
+
+export function isDemoTaskId(taskId: string | number): boolean {
+  return DEMO_TASK_IDS.has(String(taskId))
+}
+
 export const DEMO_TASK_ROUTES: Record<
   string,
   { mode: AnnotationWorkspaceMode; label: string; category?: string }
@@ -122,6 +132,9 @@ export function resolveProjectAnnotatePath(project: {
   }
   if (project.category === 'multimodal') {
     return getAnnotatePath(3001, 'multimodal')
+  }
+  if (project.id != null) {
+    return `/projects/${project.id}/tasks`
   }
   return '/tasks'
 }
