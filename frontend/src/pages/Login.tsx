@@ -38,9 +38,19 @@ export default function Login() {
   // ── dev shortcut: skip auth ───────────────────────────────────────────────
   function devLogin() {
     setAuth(
-      { id: 1, username: 'dev', email: 'dev@dasshine.ai', level: 'expert',
-        is_admin: true, skill_tags: ['2d_bbox', '3d_box'], accuracy_rate: 0.95,
-        total_completed: 1200, total_earnings: 240, active_tasks: 3 },
+      {
+        id: 1,
+        username: 'dev',
+        email: 'dev@dasshine.ai',
+        level: 'expert',
+        role: 'super_admin',
+        is_admin: true,
+        skill_tags: ['2d_bbox', '3d_box'],
+        accuracy_rate: 0.95,
+        total_completed: 1200,
+        total_earnings: 240,
+        active_tasks: 3,
+      },
       'dev-token'
     )
     navigate('/')

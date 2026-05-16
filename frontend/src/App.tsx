@@ -1,4 +1,3 @@
-import React from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
@@ -10,6 +9,7 @@ import TaskList from './pages/TaskList'
 import AnnotationWorkspace from './pages/AnnotationWorkspace'
 import ImageAnnotation from './pages/ImageAnnotation'
 import PointCloudAnnotation from './pages/PointCloudAnnotation'
+import EmbodiedAnnotation from './pages/EmbodiedAnnotation'
 import Projects from './pages/Projects'
 import './index.css'
 
@@ -48,9 +48,10 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<Projects />} />
           <Route path="tasks" element={<TaskList />} />
-          <Route path="annotate/:taskId" element={<AnnotationWorkspace />} />
-          <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />
+          <Route path="annotate-embodied/:taskId" element={<EmbodiedAnnotation />} />
           <Route path="annotate-3d/:taskId" element={<PointCloudAnnotation />} />
+          <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />
+          <Route path="annotate/:taskId" element={<AnnotationWorkspace />} />
         </Route>
       </Routes>
     </>

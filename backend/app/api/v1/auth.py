@@ -6,7 +6,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 
 from app.core.config import settings
 from app.core.security import create_access_token, verify_password, get_password_hash
@@ -44,6 +44,15 @@ class UserResponse(BaseModel):
     role: str
     level: str
     avatar: str | None
+    is_admin: bool = False          # 新增字段，默认 False
+
+    model_config = {"from_attributes": True}   # 允许从 ORM 对象转换
+
+    @model_validator(mode='after')
+    def set_is_admin(self):
+        # role 字段已经有值了，用它来计算 is_admin
+        self.is_admin = self.role in ('super_admin', 'admin')
+        return self
 
 
 @router.post("/auth/register", response_model=UserResponse)
@@ -120,7 +129,8 @@ def login(
             "username": user.username,
             "email": user.email,
             "role": user.role,
-            "level": user.level
+            "level": user.level,
+            "is_admin": user.is_admin
         }
     }
 

@@ -14,7 +14,8 @@ const api = axios.create({
 // 请求拦截器 - 添加 token
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('token')
+    const auth = localStorage.getItem('dasshine_auth')
+    const token = auth ? JSON.parse(auth)?.state?.token : null
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -246,6 +247,9 @@ export const qualityApi = {
   getAgreementStats: (projectId: number) =>
     api.get(`/quality/agreement/${projectId}`),
 }
+
+// 具身标注 API（详见 services/embodied.ts）
+export { embodiedApi } from './embodied'
 
 // 用户相关 API
 export const userApi = {

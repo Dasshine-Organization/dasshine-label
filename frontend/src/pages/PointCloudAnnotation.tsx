@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { message } from 'antd'
 import { v4 as uuid } from 'uuid'
@@ -8,7 +8,7 @@ import '../components/annotation/annotation.css'
 
 import AnnotationTopBar  from '../components/annotation/AnnotationTopBar'
 import AnnotationToolbar from '../components/annotation/AnnotationToolbar'
-import Canvas3D          from '../components/annotation/3d/Canvas3D'
+import Scene3DWorkspace  from '../components/annotation/3d/Scene3DWorkspace'
 import RightPanel        from '../components/annotation/RightPanel'
 import ExportPanel       from '../components/annotation/ExportPanel'
 
@@ -21,16 +21,18 @@ export default function PointCloudAnnotation() {
   useAnnotationHotkeys()
   useAutoSave(taskId)
 
-  // Switch to 3D mode on mount
-  useState(() => { useAnnotationStore.getState().setMode('3d') })
+  useEffect(() => {
+    useAnnotationStore.getState().setMode('3d')
+    useAnnotationStore.getState().setCurrentTask(taskId, 0)
+  }, [taskId])
 
   function loadAI3D() {
     setAiLoading(true)
     setTimeout(() => {
       const boxes = [
-        { id: uuid(), label: 'car',    color: '#00d4ff', center: { x: 5,  y: 0.75, z: 3  }, size: { x: 4.5, y: 1.5, z: 2   }, rotation: { x: 0, y: 0.2,  z: 0 }, visible: true, locked: false, score: 0.92, isAI: true },
-        { id: uuid(), label: 'person', color: '#7c3aed', center: { x: -3, y: 0.9,  z: 6  }, size: { x: 0.6, y: 1.8, z: 0.6 }, rotation: { x: 0, y: 0,    z: 0 }, visible: true, locked: false, score: 0.85, isAI: true },
-        { id: uuid(), label: 'truck',  color: '#10b981', center: { x: 10, y: 1.5,  z: -5 }, size: { x: 8,   y: 3,   z: 2.5 }, rotation: { x: 0, y: -0.1, z: 0 }, visible: true, locked: false, score: 0.78, isAI: true },
+        { id: uuid(), label: 'car',    color: '#00d4ff', center: { x: 6,   y: 0.55, z: -1.5 }, size: { x: 4.2, y: 1.5, z: 1.9 }, rotation: { x: 0, y: 0.15, z: 0 }, visible: true, locked: false, score: 0.92, isAI: true },
+        { id: uuid(), label: 'car',    color: '#a78bfa', center: { x: -4,  y: 0.5,  z: 4.5  }, size: { x: 3.8, y: 1.4, z: 1.7 }, rotation: { x: 0, y: 1.2,   z: 0 }, visible: true, locked: false, score: 0.86, isAI: true },
+        { id: uuid(), label: 'truck',  color: '#10b981', center: { x: 1.5, y: 0.85, z: -8   }, size: { x: 7.5, y: 2.8, z: 2.2 }, rotation: { x: 0, y: -0.05,z: 0 }, visible: true, locked: false, score: 0.78, isAI: true },
       ]
       useAnnotationStore.setState({ boxes3d: boxes })
       setAiLoading(false)
@@ -41,7 +43,7 @@ export default function PointCloudAnnotation() {
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden select-none">
       <AnnotationTopBar
-        taskName={`Task #${taskId} — 3D 点云标注`}
+        taskName={`Task #${taskId} — 自动驾驶点云标注（路口场景）`}
         totalImages={1}
         currentImage={1}
         onExport={() => setShowExport(v => !v)}
@@ -49,7 +51,7 @@ export default function PointCloudAnnotation() {
       <div className="flex flex-1 overflow-hidden">
         <AnnotationToolbar />
         <div className="flex-1 relative overflow-hidden">
-          <Canvas3D />
+          <Scene3DWorkspace taskId={taskId} />
 
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20 pointer-events-auto">
             <button
@@ -80,7 +82,7 @@ export default function PointCloudAnnotation() {
             </div>
           )}
         </div>
-        <RightPanel />
+        <RightPanel taskId={taskId} />
       </div>
     </div>
   )

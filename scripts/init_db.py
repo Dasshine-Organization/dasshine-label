@@ -13,6 +13,7 @@ from app.models.user import User, UserRole, UserStatus
 from app.models.project import Project, ProjectMember  # 导入 ProjectMember
 from app.models.task import Task
 from app.models.annotation import Annotation
+from app.models import embodied  # noqa: F401 — embodied_workspaces / embodied_frame_annotations
 from app.core.security import get_password_hash
 
 
