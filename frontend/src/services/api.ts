@@ -254,6 +254,9 @@ export { embodiedApi } from './embodied'
 // 2D 预标注 API（详见 services/prelabel.ts）
 export { prelabelApi } from './prelabel'
 
+// 文本 / 语音 / 视频标注 API
+export { modalityApi } from './modalityAnnotation'
+
 // 用户相关 API
 export const userApi = {
   // 获取用户列表（管理员）

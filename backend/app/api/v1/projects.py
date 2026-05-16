@@ -1,21 +1,31 @@
-# backend/app/api/v1/projects.py
+"""项目管理 API"""
+
+from __future__ import annotations
+
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.api.deps import get_current_user, get_current_admin as require_admin
+from app.api.deps import get_current_admin as require_admin
+from app.api.deps import get_current_user, get_db
+from app.models.project import Project, ProjectMember
 from app.models.user import User
+from app.schemas.project_schemas import (
+    AddMemberRequest,
+    DispatchRequest,
+    DispatchResult,
+    ProjectCreate,
+    ProjectUpdate,
+)
 from app.services.project_acl import can_administrate_project
+from app.services.project_service import ProjectService, _get_schema
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
 def _to_summary(p: Project, db: Session) -> dict:
     schema = _get_schema(p)
-    from app.models.project import ProjectMember
     member_count = db.query(ProjectMember).filter(ProjectMember.project_id == p.id).count()
     status_val = p.status.value if hasattr(p.status, "value") else str(p.status)
     return {
@@ -57,23 +67,96 @@ def _to_out(p: Project) -> dict:
         "created_at": p.created_at,
     }
 
-class ProjectResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    type: str
-    status: str
-    total_items: int
-    labeled_items: int
-    approved_items: int
-    progress: float
-    created_at: datetime
-    created_by_id: int
 
-    class Config:
-        from_attributes = True
+def _meta_categories() -> list:
+    """与前端 CreateProjectModal fallback 对齐"""
+    return [
+        {
+            "id": "image_2d",
+            "label": "图像 2D",
+            "icon": "image",
+            "color": "#00d4ff",
+            "types": [
+                {"id": "bbox_2d", "label": "矩形框", "desc": "目标检测"},
+                {"id": "polygon", "label": "多边形", "desc": "实例分割"},
+                {"id": "classification", "label": "图像分类", "desc": "整图标签"},
+            ],
+        },
+        {
+            "id": "pointcloud_3d",
+            "label": "3D 点云",
+            "icon": "cube",
+            "color": "#a78bfa",
+            "types": [
+                {"id": "bbox_3d", "label": "3D 包围盒", "desc": "自动驾驶检测"},
+                {"id": "lidar_seg", "label": "点云分割", "desc": "语义分割"},
+            ],
+        },
+        {
+            "id": "video",
+            "label": "视频",
+            "icon": "video",
+            "color": "#f59e0b",
+            "types": [
+                {"id": "video_tracking", "label": "目标追踪", "desc": "多帧 ID"},
+                {"id": "video_action", "label": "动作识别", "desc": "时序片段"},
+                {"id": "video_caption", "label": "视频描述", "desc": "字幕/描述"},
+            ],
+        },
+        {
+            "id": "audio",
+            "label": "语音",
+            "icon": "mic",
+            "color": "#10b981",
+            "types": [
+                {"id": "asr", "label": "语音转写", "desc": "ASR"},
+                {"id": "speaker_diarize", "label": "说话人分离", "desc": "多人对话"},
+                {"id": "emotion_audio", "label": "情绪识别", "desc": "语音情感"},
+            ],
+        },
+        {
+            "id": "nlp",
+            "label": "语料",
+            "icon": "text",
+            "color": "#ec4899",
+            "types": [
+                {"id": "ner", "label": "命名实体识别", "desc": "NER"},
+                {"id": "sentiment", "label": "情感分析", "desc": "情感极性"},
+                {"id": "text_classify", "label": "文本分类", "desc": "多标签"},
+                {"id": "qa_pair", "label": "问答对", "desc": "SFT"},
+            ],
+        },
+        {
+            "id": "embodied",
+            "label": "具身机器人",
+            "icon": "robot",
+            "color": "#f97316",
+            "types": [{"id": "robot_action", "label": "动作序列", "desc": "操作步骤"}],
+        },
+        {
+            "id": "ocr",
+            "label": "OCR",
+            "icon": "scan",
+            "color": "#06b6d4",
+            "types": [{"id": "ocr_text", "label": "文字检测识别", "desc": "OCR"}],
+        },
+        {
+            "id": "multimodal",
+            "label": "多模态",
+            "icon": "layers",
+            "color": "#8b5cf6",
+            "types": [
+                {"id": "image_caption", "label": "图文描述", "desc": "Caption"},
+                {"id": "vqa", "label": "视觉问答", "desc": "VQA"},
+            ],
+        },
+    ]
 
-# ── CRUD ──────────────────────────────────────────────────────────────────────
+
+@router.get("/meta/types")
+def get_project_meta_types():
+    return {"categories": _meta_categories()}
+
 
 @router.post("", status_code=201)
 def create_project(
@@ -81,8 +164,7 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = ProjectService(db)
-    project = svc.create(payload, current_user.id)
+    project = ProjectService(db).create(payload, current_user.id)
     return _to_out(project)
 
 
@@ -96,10 +178,10 @@ def list_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = ProjectService(db)
     user_id = current_user.id if (my_projects or not current_user.is_admin) else None
-    projects = svc.list_all(skip=skip, limit=limit, status=status,
-                            category=category, user_id=user_id)
+    projects = ProjectService(db).list_all(
+        skip=skip, limit=limit, status=status, category=category, user_id=user_id
+    )
     return [_to_summary(p, db) for p in projects]
 
 
@@ -111,7 +193,7 @@ def get_project(
 ):
     project = ProjectService(db).get(project_id)
     if not project:
-        raise HTTPException(404, "Project not found")
+        raise HTTPException(status_code=404, detail="项目不存在")
     return _to_out(project)
 
 
@@ -122,38 +204,62 @@ def update_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    svc = ProjectService(db)
-    project = svc.get(project_id)
+    project = ProjectService(db).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     if not can_administrate_project(db, project, current_user):
-        raise HTTPException(status_code=403, detail="仅管理员或项目所有者可修改项目")
-
-    update_data = project_update.dict(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(project, key, value)
-    
-    db.commit()
-    db.refresh(project)
-    return {"message": "更新成功", "project": project}
+        raise HTTPException(status_code=403, detail="无权修改项目")
+    updated = ProjectService(db).update(project_id, payload)
+    return _to_out(updated)
 
 
-@router.delete("/projects/{project_id}")
+@router.delete("/{project_id}")
 def delete_project(
     project_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
 ):
-    """删除项目"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = ProjectService(db).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     if not can_administrate_project(db, project, current_user):
-        raise HTTPException(status_code=403, detail="仅管理员或项目所有者可删除项目")
-
-    db.delete(project)
-    db.commit()
+        raise HTTPException(status_code=403, detail="无权删除项目")
+    ProjectService(db).delete(project_id)
     return {"message": "删除成功"}
+
+
+@router.post("/{project_id}/dispatch", response_model=DispatchResult)
+def dispatch_project(
+    project_id: int,
+    payload: DispatchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权分发任务")
+    result = ProjectService(db).dispatch(project_id, payload, current_user.id)
+    return DispatchResult(**result)
+
+
+@router.post("/{project_id}/members")
+def add_member(
+    project_id: int,
+    body: AddMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权添加成员")
+    ok = ProjectService(db).add_member(project_id, body.user_id, body.role)
+    if not ok:
+        raise HTTPException(status_code=400, detail="添加成员失败")
+    return {"message": "成员已添加"}
 
 
 @router.delete("/{project_id}/members/{user_id}")
@@ -163,26 +269,10 @@ def remove_member(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """添加项目成员"""
-    project = db.query(Project).filter(Project.id == project_id).first()
+    project = ProjectService(db).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     if not can_administrate_project(db, project, current_user):
-        raise HTTPException(status_code=403, detail="仅管理员或项目所有者可添加成员")
-
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    
-    member = ProjectMember(
-        project_id=project_id,
-        user_id=user_id,
-        role=role,
-        can_assign=role in ["owner", "manager"],
-        can_review=role in ["owner", "manager", "reviewer"],
-        can_export=role in ["owner", "manager"]
-    )
-    db.add(member)
-    db.commit()
-    
-    return {"message": "成员添加成功"}
+        raise HTTPException(status_code=403, detail="无权移除成员")
+    ProjectService(db).remove_member(project_id, user_id)
+    return {"message": "成员已移除"}

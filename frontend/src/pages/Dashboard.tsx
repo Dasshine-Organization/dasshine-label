@@ -8,12 +8,22 @@ const LEVEL_COLORS: Record<string, string> = {
 }
 
 type QuickLink =
-  | { label: string; desc: string; taskId: number; mode: '2d' | '3d'; color: string; icon: string }
+  | {
+      label: string
+      desc: string
+      taskId: number
+      mode: '2d' | '3d' | 'text' | 'audio' | 'video'
+      color: string
+      icon: string
+    }
   | { label: string; desc: string; href: string; color: string; icon: string }
 
 const QUICK_LINKS: QuickLink[] = [
   { label: '2D 图像标注', desc: '矩形框 / 多边形 / 关键点', taskId: 1001, mode: '2d', color: '#00d4ff', icon: '◧' },
   { label: '自动驾驶点云标注', desc: '三维 LiDAR 包围盒', taskId: 1002, mode: '3d', color: '#a78bfa', icon: '⬡' },
+  { label: '语料 · NER', desc: '命名实体 / 情感 / 问答', taskId: 3001, mode: 'text', color: '#ec4899', icon: '✎' },
+  { label: '语音 · ASR', desc: '转写与时间轴片段', taskId: 3002, mode: 'audio', color: '#10b981', icon: '♫' },
+  { label: '视频 · 动作片段', desc: '时序动作与描述', taskId: 3003, mode: 'video', color: '#f59e0b', icon: '▶' },
   { label: '具身 · InSight', desc: '多视角演示 · 逐帧与连续播放', href: '/annotate-embodied/demo', color: '#f97316', icon: '⎔' },
   { label: '具身 · ALOHA 四相机', desc: 'LeRobot 真实多路视频', href: '/annotate-embodied/2002', color: '#84cc16', icon: '⬢' },
   { label: '任务列表', desc: '查看并领取待标注任务', href: '/tasks', color: '#10b981', icon: '☰' },

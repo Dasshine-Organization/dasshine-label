@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1 import auth, projects, tasks, annotations, users, export, auto_label, quality, annotations_3d
-from app.api.v1 import annotation_drafts, project_labels, task_prelabel, embodied
+from app.api.v1 import annotation_drafts, project_labels, task_prelabel, embodied, dataset, modality_workspace
 
 
 @asynccontextmanager
@@ -50,7 +50,8 @@ def create_application() -> FastAPI:
     # 注册路由
     app.include_router(auth.router, prefix="/api/v1", tags=["认证"])
     app.include_router(users.router, prefix="/api/v1", tags=["用户"])
-    app.include_router(projects.router, prefix="/api/v1", tags=["项目"])
+    app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(dataset.router, prefix="/api/v1")
     app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])
     app.include_router(annotations.router, prefix="/api/v1", tags=["标注"])
     app.include_router(annotation_drafts.router, prefix="/api/v1", tags=["标注草稿"])
@@ -61,6 +62,7 @@ def create_application() -> FastAPI:
     app.include_router(auto_label.router, prefix="/api/v1", tags=["自动标注"])
     app.include_router(quality.router, prefix="/api/v1", tags=["质量控制"])
     app.include_router(embodied.router, prefix="/api/v1")
+    app.include_router(modality_workspace.router, prefix="/api/v1")
     # app.include_router(projects.router, prefix="/api/v1"， tags=["项目管理"])
 
     @app.get("/")

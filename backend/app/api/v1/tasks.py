@@ -92,7 +92,9 @@ def list_tasks(
     - 管理员：查看所有任务
     - 标注员：查看自己相关的任务
     """
-    query = db.query(Task)
+    from sqlalchemy.orm import joinedload
+
+    query = db.query(Task).options(joinedload(Task.project))
     
     # 非管理员只能看自己的
     if not current_user.is_admin:
@@ -110,20 +112,29 @@ def list_tasks(
     
     # 转换为响应格式
     result = []
+    from app.services.project_service import _get_schema
+
     for task in tasks:
         assignee_name = None
         if task.assignee:
             assignee_name = task.assignee.username
-        
+        schema = _get_schema(task.project) if task.project else {}
+        category = schema.get("category")
+        ann_type = schema.get("ann_type")
         result.append({
             "id": task.id,
             "project_id": task.project_id,
+            "project": task.project.name if task.project else "",
+            "category": category,
+            "ann_type": ann_type,
+            "type": ann_type or (task.project.type.value if task.project and hasattr(task.project.type, "value") else ""),
             "status": task.status.value if hasattr(task.status, 'value') else task.status,
             "priority": task.priority,
             "assignee_id": task.assignee_id,
             "assignee_name": assignee_name,
             "pre_label_confidence": task.pre_label_confidence,
-            "created_at": task.created_at.isoformat() if task.created_at else None
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "reward": schema.get("price_per_task", 0.1),
         })
     
     return result
