@@ -22,6 +22,40 @@ function offlineFor(kind: ModalityKind, taskId: string, annType?: string): Modal
   return offlineTextWorkspace(taskId, annType)
 }
 
+function localDraftKey(kind: ModalityKind, taskId: string) {
+  return `dasshine_modality_draft_${kind}_${taskId}`
+}
+
+function readLocalDraft(kind: ModalityKind, taskId: string): {
+  payload: ModalityPayload
+  savedAt: string
+} | null {
+  try {
+    const raw = localStorage.getItem(localDraftKey(kind, taskId))
+    if (!raw) return null
+    const data = JSON.parse(raw) as { payload?: ModalityPayload; savedAt?: string }
+    if (data.payload && typeof data.payload === 'object') {
+      return {
+        payload: data.payload,
+        savedAt: data.savedAt ?? new Date().toISOString(),
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function writeLocalDraft(kind: ModalityKind, taskId: string, payload: ModalityPayload): string {
+  const savedAt = new Date().toISOString()
+  try {
+    localStorage.setItem(localDraftKey(kind, taskId), JSON.stringify({ payload, savedAt }))
+  } catch {
+    /* quota */
+  }
+  return savedAt
+}
+
 export function useModalityWorkspace(
   taskId: string,
   kind: ModalityKind,
@@ -42,20 +76,35 @@ export function useModalityWorkspace(
     try {
       if (token && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
         const data = await modalityApi.getWorkspace(taskId)
-        setWs(data)
-        setPayload(data.payload)
-        setLastSavedAt(data.draft_updated_at ?? null)
+        const local = readLocalDraft(kind, taskId)
+        // 服务端有草稿优先；否则用本地
+        const serverEmpty =
+          !data.payload ||
+          (typeof data.payload === 'object' && Object.keys(data.payload).length === 0)
+        if (serverEmpty && local) {
+          setWs(data)
+          setPayload(local.payload)
+          setLastSavedAt(local.savedAt)
+        } else {
+          setWs(data)
+          setPayload(data.payload)
+          setLastSavedAt(data.draft_updated_at ?? local?.savedAt ?? null)
+        }
         setUseBackend(true)
       } else {
         const data = offlineFor(kind, taskId, annTypeHint)
+        const local = readLocalDraft(kind, taskId)
         setWs(data)
-        setPayload(data.payload)
+        setPayload(local?.payload ?? data.payload)
+        setLastSavedAt(local?.savedAt ?? null)
         setUseBackend(false)
       }
     } catch {
       const data = offlineFor(kind, taskId, annTypeHint)
+      const local = readLocalDraft(kind, taskId)
       setWs(data)
-      setPayload(data.payload)
+      setPayload(local?.payload ?? data.payload)
+      setLastSavedAt(local?.savedAt ?? null)
       setUseBackend(false)
     } finally {
       setLoading(false)
@@ -68,12 +117,15 @@ export function useModalityWorkspace(
 
   const persist = useCallback(
     async (next: ModalityPayload, silent = true) => {
-      if (!useBackend || !/^\d+$/.test(taskId) || isDemoTaskId(taskId)) return
       setSaving(true)
       try {
-        await modalityApi.saveWorkspace(taskId, next)
-        const at = new Date().toISOString()
+        const at = writeLocalDraft(kind, taskId, next)
         setLastSavedAt(at)
+
+        if (useBackend && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
+          await modalityApi.saveWorkspace(taskId, next)
+        }
+
         if (!silent) notifyDraftSaved()
       } catch {
         if (!silent) message.error('保存失败')
@@ -81,7 +133,7 @@ export function useModalityWorkspace(
         setSaving(false)
       }
     },
-    [taskId, useBackend],
+    [taskId, useBackend, kind],
   )
 
   const updatePayload = useCallback(
@@ -99,14 +151,15 @@ export function useModalityWorkspace(
 
   const submit = useCallback(async () => {
     if (!payload) return
+    writeLocalDraft(kind, taskId, payload)
     if (useBackend && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
       const workTime = Math.round((Date.now() - startRef.current) / 1000)
       await modalityApi.submit(taskId, payload, workTime)
       message.success('已提交标注')
     } else {
-      message.info('离线模式：请登录后提交到服务器')
+      message.info('离线模式：草稿已保存在本地，登录后可提交到服务器')
     }
-  }, [payload, taskId, useBackend])
+  }, [payload, taskId, useBackend, kind])
 
   return {
     ws,

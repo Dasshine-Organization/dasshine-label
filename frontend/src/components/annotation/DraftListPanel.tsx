@@ -136,7 +136,7 @@ export default function DraftListPanel({ taskId, currentImageIndex, onLoad }: Pr
                 className="flex-1 py-1 rounded text-[11px] bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20
                   hover:bg-[#00d4ff]/20 active:scale-95 transition-all"
               >
-                恢复
+                {isCurrent ? '重新加载' : '加载此帧'}
               </button>
               <button
                 type="button"

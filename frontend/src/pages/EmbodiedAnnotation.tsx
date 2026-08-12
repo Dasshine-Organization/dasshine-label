@@ -14,6 +14,7 @@ import {
 } from '../mocks/embodiedDemoData'
 import { embodiedApi } from '../services/embodied'
 import useAuthStore from '../store/authStore'
+import { notifyDraftSaved } from '../utils/draftSaveNotify'
 
 function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement('a')
@@ -21,6 +22,52 @@ function downloadBlob(blob: Blob, filename: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(a.href)
+}
+
+type EmbodiedLocalDraft = {
+  action_labels: ActionLabelDef[]
+  frame_actions: Record<number, FrameAnnotation>
+  committed_frames: number[]
+  savedAt: string
+}
+
+function embodiedDraftKey(taskId: string) {
+  return `dasshine_embodied_draft_${taskId}`
+}
+
+function readEmbodiedLocalDraft(taskId: string): EmbodiedLocalDraft | null {
+  try {
+    const raw = localStorage.getItem(embodiedDraftKey(taskId))
+    if (!raw) return null
+    const data = JSON.parse(raw) as EmbodiedLocalDraft
+    if (data && data.frame_actions) return data
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+function writeEmbodiedLocalDraft(
+  taskId: string,
+  labels: ActionLabelDef[],
+  frameActions: Record<number, FrameAnnotation>,
+  committedFrames: Set<number>,
+): string {
+  const savedAt = new Date().toISOString()
+  try {
+    localStorage.setItem(
+      embodiedDraftKey(taskId),
+      JSON.stringify({
+        action_labels: labels,
+        frame_actions: frameActions,
+        committed_frames: [...committedFrames].sort((a, b) => a - b),
+        savedAt,
+      } satisfies EmbodiedLocalDraft),
+    )
+  } catch {
+    /* quota */
+  }
+  return savedAt
 }
 
 export default function EmbodiedAnnotation() {
@@ -55,6 +102,8 @@ export default function EmbodiedAnnotation() {
   const [videoSrcOverride, setVideoSrcOverride] = useState<Record<string, string>>({})
   /** 两路 URL 均失败 */
   const [failedStreamIds, setFailedStreamIds] = useState<Set<string>>(() => new Set())
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+  const [savingDraft, setSavingDraft] = useState(false)
 
   useEffect(() => {
     setEpisode(mockEpisode)
@@ -64,6 +113,21 @@ export default function EmbodiedAnnotation() {
 
   useEffect(() => {
     if (!token) {
+      const local = readEmbodiedLocalDraft(taskId)
+      if (local) {
+        setLabels(local.action_labels?.length ? local.action_labels : [...DEFAULT_ACTION_LABELS])
+        setCommittedFrames(new Set(local.committed_frames ?? []))
+        setFrameActions(local.frame_actions)
+        setLastSavedAt(local.savedAt)
+      } else {
+        setLabels([...DEFAULT_ACTION_LABELS])
+        setCommittedFrames(new Set())
+        setFrameActions(
+          Object.fromEntries(
+            Array.from({ length: mockEpisode.totalFrames }, (_, i) => [i, { actionId: 'idle' }]),
+          ) as Record<number, FrameAnnotation>,
+        )
+      }
       setHydrated(true)
       return
     }
@@ -77,18 +141,40 @@ export default function EmbodiedAnnotation() {
         if (cancelled) return
         setEpisode(ep)
         setUseBackend(true)
-        setLabels(ws.action_labels.length ? ws.action_labels : [...DEFAULT_ACTION_LABELS])
-        setCommittedFrames(new Set(ws.committed_frames))
-        const actions: Record<number, FrameAnnotation> = {}
-        for (let i = 0; i < ep.totalFrames; i++) {
-          actions[i] = ws.frame_actions[i] ?? { actionId: 'idle' }
+        const local = readEmbodiedLocalDraft(taskId)
+        const serverHasWork =
+          (ws.committed_frames?.length ?? 0) > 0 ||
+          Object.values(ws.frame_actions ?? {}).some(a => a?.actionId && a.actionId !== 'idle')
+        if (!serverHasWork && local) {
+          setLabels(local.action_labels?.length ? local.action_labels : [...DEFAULT_ACTION_LABELS])
+          setCommittedFrames(new Set(local.committed_frames ?? []))
+          const actions: Record<number, FrameAnnotation> = {}
+          for (let i = 0; i < ep.totalFrames; i++) {
+            actions[i] = local.frame_actions[i] ?? { actionId: 'idle' }
+          }
+          setFrameActions(actions)
+          setLastSavedAt(local.savedAt)
+        } else {
+          setLabels(ws.action_labels.length ? ws.action_labels : [...DEFAULT_ACTION_LABELS])
+          setCommittedFrames(new Set(ws.committed_frames))
+          const actions: Record<number, FrameAnnotation> = {}
+          for (let i = 0; i < ep.totalFrames; i++) {
+            actions[i] = ws.frame_actions[i] ?? { actionId: 'idle' }
+          }
+          setFrameActions(actions)
         }
-        setFrameActions(actions)
         setHydrated(true)
       } catch {
         if (!cancelled) {
           setEpisode(mockEpisode)
           setUseBackend(false)
+          const local = readEmbodiedLocalDraft(taskId)
+          if (local) {
+            setLabels(local.action_labels?.length ? local.action_labels : [...DEFAULT_ACTION_LABELS])
+            setCommittedFrames(new Set(local.committed_frames ?? []))
+            setFrameActions(local.frame_actions)
+            setLastSavedAt(local.savedAt)
+          }
           setHydrated(true)
         }
       }
@@ -98,48 +184,57 @@ export default function EmbodiedAnnotation() {
     }
   }, [taskId, token, mockEpisode])
 
-  const persistWorkspace = useCallback(async () => {
-    if (!useBackend) return
+  const persistWorkspace = useCallback(async (showToast = false) => {
+    setSavingDraft(true)
     try {
-      await embodiedApi.saveWorkspace(taskId, {
-        action_labels: labels,
-        frame_actions: frameActions,
-        committed_frames: [...committedFrames].sort((a, b) => a - b),
-      })
+      const at = writeEmbodiedLocalDraft(taskId, labels, frameActions, committedFrames)
+      setLastSavedAt(at)
+      if (useBackend) {
+        await embodiedApi.saveWorkspace(taskId, {
+          action_labels: labels,
+          frame_actions: frameActions,
+          committed_frames: [...committedFrames].sort((a, b) => a - b),
+        })
+      }
       dirtyRef.current = false
+      if (showToast) notifyDraftSaved()
     } catch {
-      message.error('保存到服务器失败')
+      if (showToast) message.error('保存到服务器失败')
+    } finally {
+      setSavingDraft(false)
     }
   }, [useBackend, taskId, labels, frameActions, committedFrames])
 
   useEffect(() => {
-    if (!useBackend || !hydrated) return
+    if (!hydrated) return
     dirtyRef.current = true
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(() => {
-      persistWorkspace()
+      void persistWorkspace(false)
     }, 2500)
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [labels, frameActions, committedFrames, useBackend, hydrated, persistWorkspace])
+  }, [labels, frameActions, committedFrames, hydrated, persistWorkspace])
 
   useEffect(() => {
-    if (hydrated && !useBackend) {
-      leaderBumped.current = false
-      setVideoSrcOverride({})
-      setFailedStreamIds(new Set())
-      setLabels([...DEFAULT_ACTION_LABELS])
-      setCommittedFrames(new Set())
-      setFrame(0)
-      setStepPlaying(false)
-      setContinuous(false)
-      setFrameActions(
-        Object.fromEntries(
-          Array.from({ length: episode.totalFrames }, (_, i) => [i, { actionId: 'idle' }]),
-        ) as Record<number, FrameAnnotation>,
-      )
-    }
+    if (!hydrated || useBackend) return
+    // 离线：仅在无本地草稿时初始化空帧，避免覆盖已保存内容
+    const local = readEmbodiedLocalDraft(taskId)
+    if (local) return
+    leaderBumped.current = false
+    setVideoSrcOverride({})
+    setFailedStreamIds(new Set())
+    setLabels([...DEFAULT_ACTION_LABELS])
+    setCommittedFrames(new Set())
+    setFrame(0)
+    setStepPlaying(false)
+    setContinuous(false)
+    setFrameActions(
+      Object.fromEntries(
+        Array.from({ length: episode.totalFrames }, (_, i) => [i, { actionId: 'idle' }]),
+      ) as Record<number, FrameAnnotation>,
+    )
   }, [taskId, episode.totalFrames, hydrated, useBackend])
 
   useEffect(() => {
@@ -440,6 +535,19 @@ export default function EmbodiedAnnotation() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {lastSavedAt && (
+            <span className="text-[10px] text-[#10b981]/80 font-mono" title={lastSavedAt}>
+              已保存 {new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void persistWorkspace(true)}
+            disabled={savingDraft}
+            className="text-xs px-3 py-1.5 rounded-lg border border-white/15 text-white/60 hover:border-white/30 disabled:opacity-40"
+          >
+            {savingDraft ? '保存中…' : '保存草稿'}
+          </button>
           <button
             type="button"
             onClick={toggleStepPlay}

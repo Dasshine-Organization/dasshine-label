@@ -142,6 +142,98 @@ export function exportImageSessionPayload(taskId: string): ImageAnnotationSessio
   }
 }
 
+/** 从服务端草稿 JSON 解析为图像会话 */
+export function parseImageSessionPayload(
+  taskId: string,
+  payload: Record<string, unknown> | null | undefined,
+): ImageAnnotationSessionV2 | null {
+  if (!payload || typeof payload !== 'object') return null
+
+  if (
+    payload.v === IMAGE_SESSION_VERSION &&
+    payload.frames &&
+    typeof payload.frames === 'object' &&
+    typeof payload.currentIdx === 'number'
+  ) {
+    return {
+      v: IMAGE_SESSION_VERSION,
+      taskId: String(payload.taskId ?? taskId),
+      currentIdx: payload.currentIdx as number,
+      frames: JSON.parse(JSON.stringify(payload.frames)) as Record<string, Annotation2D[]>,
+      labelClasses: Array.isArray(payload.labelClasses)
+        ? (JSON.parse(JSON.stringify(payload.labelClasses)) as LabelClass[])
+        : [],
+      savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : new Date().toISOString(),
+    }
+  }
+
+  if (Array.isArray(payload.annotations2d)) {
+    return {
+      v: IMAGE_SESSION_VERSION,
+      taskId,
+      currentIdx: 0,
+      frames: { '0': JSON.parse(JSON.stringify(payload.annotations2d)) as Annotation2D[] },
+      labelClasses: Array.isArray(payload.labelClasses)
+        ? (JSON.parse(JSON.stringify(payload.labelClasses)) as LabelClass[])
+        : [],
+      savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : new Date().toISOString(),
+    }
+  }
+
+  return null
+}
+
+function sessionAnnotationCount(session: ImageAnnotationSessionV2): number {
+  return Object.values(session.frames).reduce(
+    (n, anns) => n + (Array.isArray(anns) ? anns.length : 0),
+    0,
+  )
+}
+
+/** 合并本地与服务端图像会话：有标注内容优先，时间戳较新优先 */
+export function mergeImageSessions(
+  local: ImageAnnotationSessionV2 | null,
+  remote: ImageAnnotationSessionV2 | null,
+  remoteUpdatedAt?: string | null,
+): ImageAnnotationSessionV2 | null {
+  if (!local && !remote) return null
+  if (!local) return remote
+  if (!remote) return local
+
+  const localCount = sessionAnnotationCount(local)
+  const remoteCount = sessionAnnotationCount(remote)
+  if (remoteCount > 0 && localCount === 0) return remote
+  if (localCount > 0 && remoteCount === 0) return local
+
+  const localTs = Date.parse(local.savedAt) || 0
+  const remoteTs = Date.parse(remote.savedAt) || Date.parse(remoteUpdatedAt ?? '') || 0
+  return remoteTs >= localTs ? remote : local
+}
+
+/** 将图像会话应用到 store 与 localStorage（无确认弹窗） */
+export function applyImageSessionToStore(
+  session: ImageAnnotationSessionV2,
+  frameCount = 1,
+): number {
+  writeImageSession(session)
+  const idx = Math.min(Math.max(0, session.currentIdx), Math.max(0, frameCount - 1))
+  const anns = session.frames[String(idx)] ?? []
+  useAnnotationStore.setState({
+    annotations2d: JSON.parse(JSON.stringify(anns)) as Annotation2D[],
+    selectedIds2d: [],
+    past: [],
+    future: [],
+    ...(session.labelClasses?.length
+      ? {
+          labelClasses: JSON.parse(JSON.stringify(session.labelClasses)) as LabelClass[],
+          activeLabel: session.labelClasses[0]?.name ?? 'car',
+        }
+      : {}),
+  })
+  syncSessionDraftsToStore(session.taskId)
+  return idx
+}
+
 export function countLabeledFrames(
   taskId: string,
   totalFrames: number,

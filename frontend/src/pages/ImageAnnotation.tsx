@@ -1,5 +1,5 @@
 import { useParams, useSearchParams } from 'react-router-dom'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { message, Select, Button, Tooltip } from 'antd'
 import useAnnotationStore, { Annotation2D } from '../store/annotationStore'
 import { useAnnotationHotkeys, useDraftManager } from '../hooks/useAnnotation'
@@ -19,8 +19,11 @@ import {
 } from '../utils/imageAnnotationPermissions'
 import {
   applyFrameToStore,
+  applyImageSessionToStore,
   countLabeledFrames,
   exportImageSessionPayload,
+  mergeImageSessions,
+  parseImageSessionPayload,
   persistImageSessionSlice,
   readImageSession,
   syncSessionDraftsToStore,
@@ -310,38 +313,74 @@ export default function ImageAnnotation() {
   const selectedModel = models.find(m => m.id === selectedModelId)
   const loadedModel = models.find(m => m.id === loadedModelId)
 
-  useLayoutEffect(() => {
-    const s = readImageSession(taskId)
-    if (!s) {
+  useEffect(() => {
+    let cancelled = false
+    setHydrated(false)
+
+    ;(async () => {
+      const local = readImageSession(taskId)
+      let merged = local
+
+      // 若 localStorage 无会话，尝试从 Zustand 持久化草稿拼出会话
+      if (!merged) {
+        const store = useAnnotationStore.getState()
+        const frames: Record<string, Annotation2D[]> = {}
+        let hasAny = false
+        for (const [key, draft] of Object.entries(store.drafts)) {
+          if (!key.startsWith(`${taskId}:`)) continue
+          frames[String(draft.imageIndex)] = draft.annotations2d
+          if (draft.annotations2d.length > 0) hasAny = true
+        }
+        if (hasAny) {
+          merged = {
+            v: 2,
+            taskId,
+            currentIdx: 0,
+            frames,
+            labelClasses: store.labelClasses,
+            savedAt: new Date().toISOString(),
+          }
+        }
+      }
+
+      if (useBackendTask) {
+        try {
+          const { data } = await taskApi.getAnnotationDraft(numericTaskId)
+          if (cancelled) return
+          const remote = parseImageSessionPayload(
+            taskId,
+            (data.payload ?? {}) as Record<string, unknown>,
+          )
+          merged = mergeImageSessions(merged, remote, data.updated_at ?? null)
+        } catch {
+          /* 使用本地 */
+        }
+      }
+
+      if (cancelled) return
+
+      if (merged) {
+        const idx = applyImageSessionToStore(merged, frameCount)
+        setCurrentIdx(idx)
+        prevIdxRef.current = idx
+        setLastSavedAt(merged.savedAt)
+      } else {
+        prevIdxRef.current = 0
+        useAnnotationStore.setState({
+          annotations2d: [],
+          selectedIds2d: [],
+          past: [],
+          future: [],
+        })
+      }
+
       setHydrated(true)
-      prevIdxRef.current = 0
-      return
+    })()
+
+    return () => {
+      cancelled = true
     }
-    const idx = Math.min(Math.max(0, s.currentIdx), frameCount - 1)
-    setCurrentIdx(idx)
-    const anns = s.frames[String(idx)] ?? []
-    if (s.labelClasses?.length) {
-      useAnnotationStore.setState({
-        labelClasses: s.labelClasses,
-        activeLabel: s.labelClasses[0]?.name ?? 'car',
-        annotations2d: JSON.parse(JSON.stringify(anns)) as Annotation2D[],
-        selectedIds2d: [],
-        past: [],
-        future: [],
-      })
-    } else {
-      useAnnotationStore.setState({
-        annotations2d: JSON.parse(JSON.stringify(anns)) as Annotation2D[],
-        selectedIds2d: [],
-        past: [],
-        future: [],
-      })
-    }
-    prevIdxRef.current = idx
-    setHydrated(true)
-    setLastSavedAt(s.savedAt ?? null)
-    syncSessionDraftsToStore(taskId)
-  }, [taskId, frameCount])
+  }, [taskId, frameCount, useBackendTask, numericTaskId])
 
   useEffect(() => {
     if (!hydrated) return
@@ -475,6 +514,15 @@ export default function ImageAnnotation() {
   const manualCount = annotations2d.filter(a => !a.isAI).length
   const canPrelabel = Boolean(loadedModelId) && !aiLoading && !modelLoading
   const selectDisabled = modelLoading || aiLoading || modelsLoading
+
+  if (!hydrated) {
+    return (
+      <div className="flex flex-col h-screen bg-[#0a0a0f] text-white items-center justify-center">
+        <span className="w-8 h-8 border-2 border-[#00d4ff]/20 border-t-[#00d4ff] rounded-full animate-spin" />
+        <p className="text-xs text-white/40 mt-4">加载标注数据…</p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden select-none">
