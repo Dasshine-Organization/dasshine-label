@@ -29,14 +29,15 @@ function normalizeAuthUser(
   u: Partial<AuthUser> & Pick<AuthUser, 'id' | 'username'>
 ): AuthUser {
   const role = u.role ?? 'annotator'
-  const isAdmin = u.is_admin ?? (role === 'super_admin' || role === 'admin')
+  // 角色优先：即使本地缓存里 is_admin 为 false，admin/super_admin 仍视为管理员
+  const isAdmin = role === 'super_admin' || role === 'admin' || Boolean(u.is_admin)
   return {
     id: u.id,
     username: u.username,
     email: u.email ?? '',
     level: u.level ?? 'novice',
     role,
-    is_admin: Boolean(isAdmin),
+    is_admin: isAdmin,
     skill_tags: u.skill_tags ?? [],
     accuracy_rate: u.accuracy_rate ?? 0,
     total_completed: u.total_completed ?? 0,
@@ -58,11 +59,18 @@ const useAuthStore = create<AuthState>()(
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
 
       updateUser: (patch) =>
-        set((s) => ({ user: s.user ? { ...s.user, ...patch } : null })),
+        set((s) => ({
+          user: s.user ? normalizeAuthUser({ ...s.user, ...patch }) : null,
+        })),
     }),
     {
       name: 'dasshine_auth',
       partialize: (s) => ({ user: s.user, token: s.token, isAuthenticated: s.isAuthenticated }),
+      onRehydrateStorage: () => (state) => {
+        if (state?.user) {
+          state.user = normalizeAuthUser(state.user)
+        }
+      },
     }
   )
 )

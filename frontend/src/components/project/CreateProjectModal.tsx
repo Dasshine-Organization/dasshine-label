@@ -1,18 +1,13 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { message } from 'antd'
 import api from '../../services/api'
 import {
   AnnotationCategory, AnnotationType, CategoryMeta,
-  LabelClass, ProjectCreatePayload, DispatchStrategy, UserLevel,
+  LabelClass, ProjectCreatePayload, DispatchStrategy, UserLevel, ProjectSummary,
 } from '../../types/project'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const CATEGORY_COLORS: Record<string, string> = {
-  image_2d: '#00d4ff', pointcloud_3d: '#a78bfa', video: '#f59e0b',
-  audio: '#10b981', nlp: '#ec4899', embodied: '#f97316',
-  ocr: '#06b6d4', multimodal: '#8b5cf6',
-}
 
 const CATEGORY_ICONS: Record<string, JSX.Element> = {
   image_2d: <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5"><rect x="2" y="4" width="16" height="12" rx="2"/><circle cx="7" cy="9" r="1.5" fill="currentColor" stroke="none"/><path d="M2 14l4-4 3 3 3-3 4 4" strokeLinejoin="round"/></svg>,
@@ -222,10 +217,10 @@ function StepInfo({
 // ─── Step 3: Label classes ────────────────────────────────────────────────────
 
 function StepLabels({
-  labels, color, onChange,
+  labels, onChange,
 }: {
   labels: LabelClass[]
-  color: string
+  color?: string
   onChange: (labels: LabelClass[]) => void
 }) {
   const [newName, setNewName] = useState('')
@@ -455,15 +450,67 @@ function StepDispatch({
 
 interface Props {
   onClose: () => void
-  onCreated: () => void
+  onCreated: (project: ProjectSummary) => void
 }
 
 const STEPS = ['类型', '基本信息', '标签', '分派设置']
 const TOTAL = STEPS.length
 
+const FALLBACK_CATEGORIES = [
+  { id: 'image_2d', label: '图像 2D', icon: 'image', color: '#00d4ff', types: [
+      { id: 'bbox_2d', label: '矩形框', desc: '目标检测' },
+      { id: 'polygon', label: '多边形', desc: '实例分割' },
+      { id: 'polyline', label: '折线', desc: '车道线/骨架' },
+      { id: 'keypoint', label: '关键点', desc: '姿态估计' },
+      { id: 'segmentation', label: '语义分割', desc: '像素级分类' },
+      { id: 'classification', label: '图像分类', desc: '整图标签' },
+  ]},
+  { id: 'pointcloud_3d', label: '3D 点云', icon: 'cube', color: '#a78bfa', types: [
+      { id: 'bbox_3d', label: '3D 包围盒', desc: '自动驾驶检测' },
+      { id: 'lidar_seg', label: '点云分割', desc: '语义/实例分割' },
+      { id: 'lane_3d', label: '3D 车道线', desc: '高精地图' },
+  ]},
+  { id: 'video', label: '视频', icon: 'video', color: '#f59e0b', types: [
+      { id: 'video_tracking', label: '目标追踪', desc: '多帧 ID 关联' },
+      { id: 'video_action', label: '动作识别', desc: '时序片段标注' },
+      { id: 'video_caption', label: '视频描述', desc: '字幕/描述' },
+  ]},
+  { id: 'audio', label: '语音', icon: 'mic', color: '#10b981', types: [
+      { id: 'asr', label: '语音转写', desc: 'ASR 标注' },
+      { id: 'tts_label', label: '语音质量', desc: 'TTS 评测' },
+      { id: 'speaker_diarize', label: '说话人分离', desc: '多人对话' },
+      { id: 'emotion_audio', label: '情绪识别', desc: '语音情感' },
+  ]},
+  { id: 'nlp', label: '语料', icon: 'text', color: '#ec4899', types: [
+      { id: 'ner', label: '命名实体识别', desc: 'NER' },
+      { id: 're', label: '关系抽取', desc: '实体关系' },
+      { id: 'sentiment', label: '情感分析', desc: '正负中性' },
+      { id: 'text_classify', label: '文本分类', desc: '多标签' },
+      { id: 'qa_pair', label: '问答对', desc: 'SFT 数据' },
+      { id: 'summarization', label: '摘要', desc: '文本压缩' },
+      { id: 'translation', label: '翻译', desc: '双语对齐' },
+  ]},
+  { id: 'embodied', label: '具身机器人', icon: 'robot', color: '#f97316', types: [
+      { id: 'robot_traj', label: '轨迹标注', desc: '运动路径' },
+      { id: 'robot_action', label: '动作序列', desc: '操作步骤' },
+      { id: 'robot_grasp', label: '抓取标注', desc: '抓取点/姿态' },
+      { id: 'robot_scene', label: '场景理解', desc: '空间关系' },
+  ]},
+  { id: 'ocr', label: 'OCR', icon: 'scan', color: '#06b6d4', types: [
+      { id: 'ocr_text', label: '文字检测识别', desc: '端到端 OCR' },
+      { id: 'ocr_layout', label: '版面分析', desc: '区域分类' },
+      { id: 'ocr_table', label: '表格识别', desc: '结构化提取' },
+  ]},
+  { id: 'multimodal', label: '多模态', icon: 'layers', color: '#8b5cf6', types: [
+      { id: 'image_caption', label: '图文描述', desc: 'Caption 生成' },
+      { id: 'vqa', label: '视觉问答', desc: 'VQA 数据' },
+      { id: 'rlhf', label: 'RLHF 偏好', desc: '人类反馈对齐' },
+  ]},
+] as CategoryMeta[]
+
 export default function CreateProjectModal({ onClose, onCreated }: Props) {
   const [step, setStep] = useState(0)
-  const [categories, setCategories] = useState<CategoryMeta[]>([])
+  const [categories, setCategories] = useState<CategoryMeta[]>(FALLBACK_CATEGORIES)
   const [loading, setLoading] = useState(false)
 
   const [form, setForm] = useState<Partial<ProjectCreatePayload>>({
@@ -488,60 +535,14 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
 
   // Load annotation type metadata
   useEffect(() => {
-    api.get('/projects/meta/types').then(r => setCategories(r.data.categories)).catch(() => {
-      // Fallback — use hardcoded (same data as backend)
-      setCategories([
-        { id: 'image_2d', label: '图像 2D', icon: 'image', color: '#00d4ff', types: [
-            { id: 'bbox_2d', label: '矩形框', desc: '目标检测' },
-            { id: 'polygon', label: '多边形', desc: '实例分割' },
-            { id: 'polyline', label: '折线', desc: '车道线/骨架' },
-            { id: 'keypoint', label: '关键点', desc: '姿态估计' },
-            { id: 'segmentation', label: '语义分割', desc: '像素级分类' },
-            { id: 'classification', label: '图像分类', desc: '整图标签' },
-        ]},
-        { id: 'pointcloud_3d', label: '3D 点云', icon: 'cube', color: '#a78bfa', types: [
-            { id: 'bbox_3d', label: '3D 包围盒', desc: '自动驾驶检测' },
-            { id: 'lidar_seg', label: '点云分割', desc: '语义/实例分割' },
-            { id: 'lane_3d', label: '3D 车道线', desc: '高精地图' },
-        ]},
-        { id: 'video', label: '视频', icon: 'video', color: '#f59e0b', types: [
-            { id: 'video_tracking', label: '目标追踪', desc: '多帧 ID 关联' },
-            { id: 'video_action', label: '动作识别', desc: '时序片段标注' },
-            { id: 'video_caption', label: '视频描述', desc: '字幕/描述' },
-        ]},
-        { id: 'audio', label: '语音', icon: 'mic', color: '#10b981', types: [
-            { id: 'asr', label: '语音转写', desc: 'ASR 标注' },
-            { id: 'tts_label', label: '语音质量', desc: 'TTS 评测' },
-            { id: 'speaker_diarize', label: '说话人分离', desc: '多人对话' },
-            { id: 'emotion_audio', label: '情绪识别', desc: '语音情感' },
-        ]},
-        { id: 'nlp', label: '语料', icon: 'text', color: '#ec4899', types: [
-            { id: 'ner', label: '命名实体识别', desc: 'NER' },
-            { id: 're', label: '关系抽取', desc: '实体关系' },
-            { id: 'sentiment', label: '情感分析', desc: '正负中性' },
-            { id: 'text_classify', label: '文本分类', desc: '多标签' },
-            { id: 'qa_pair', label: '问答对', desc: 'SFT 数据' },
-            { id: 'summarization', label: '摘要', desc: '文本压缩' },
-            { id: 'translation', label: '翻译', desc: '双语对齐' },
-        ]},
-        { id: 'embodied', label: '具身机器人', icon: 'robot', color: '#f97316', types: [
-            { id: 'robot_traj', label: '轨迹标注', desc: '运动路径' },
-            { id: 'robot_action', label: '动作序列', desc: '操作步骤' },
-            { id: 'robot_grasp', label: '抓取标注', desc: '抓取点/姿态' },
-            { id: 'robot_scene', label: '场景理解', desc: '空间关系' },
-        ]},
-        { id: 'ocr', label: 'OCR', icon: 'scan', color: '#06b6d4', types: [
-            { id: 'ocr_text', label: '文字检测识别', desc: '端到端 OCR' },
-            { id: 'ocr_layout', label: '版面分析', desc: '区域分类' },
-            { id: 'ocr_table', label: '表格识别', desc: '结构化提取' },
-        ]},
-        { id: 'multimodal', label: '多模态', icon: 'layers', color: '#8b5cf6', types: [
-            { id: 'image_caption', label: '图文描述', desc: 'Caption 生成' },
-            { id: 'vqa', label: '视觉问答', desc: 'VQA 数据' },
-            { id: 'rlhf', label: 'RLHF 偏好', desc: '人类反馈对齐' },
-        ]},
-      ] as CategoryMeta[])
-    })
+    api.get('/projects/meta/types')
+      .then(r => {
+        const list = r.data?.categories
+        if (Array.isArray(list) && list.length > 0) setCategories(list)
+      })
+      .catch(() => {
+        setCategories(FALLBACK_CATEGORIES)
+      })
   }, [])
 
   // Validation per step
@@ -554,10 +555,20 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
   async function handleCreate() {
     setLoading(true)
     try {
-      await api.post('/projects', form)
+      const { data } = await api.post('/projects', form)
       message.success({ content: `项目「${form.name}」创建成功`, duration: 3 })
-      onCreated()
-      onClose()
+      onCreated({
+        id: data.id,
+        name: data.name ?? form.name ?? '未命名项目',
+        cover_color: data.cover_color ?? form.cover_color,
+        category: data.category ?? form.category,
+        ann_type: data.ann_type ?? form.ann_type,
+        status: data.status ?? 'draft',
+        total_items: data.total_items ?? 0,
+        approved_items: data.approved_items ?? 0,
+        price_per_task: data.price_per_task ?? form.price_per_task ?? 0.1,
+        member_count: data.member_count ?? 1,
+      })
     } catch (e: any) {
       message.error({ content: e?.response?.data?.detail ?? '创建失败，请检查配置', duration: 3 })
     } finally {
@@ -567,8 +578,9 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
 
   const color = form.cover_color ?? '#00d4ff'
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
@@ -590,7 +602,7 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
           </div>
           <div className="flex items-center gap-4">
             <StepDots current={step} total={TOTAL} />
-            <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
+            <button type="button" onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
                 <path d="M3 3l10 10M13 3L3 13" strokeLinecap="round"/>
               </svg>
@@ -621,6 +633,7 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-[#1e1e2e]">
           <button
+            type="button"
             onClick={() => setStep(s => s - 1)}
             disabled={step === 0}
             className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm text-white/40
@@ -636,6 +649,7 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
 
           {step < TOTAL - 1 ? (
             <button
+              type="button"
               onClick={() => setStep(s => s + 1)}
               disabled={!canNext()}
               className={`flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all active:scale-95
@@ -651,6 +665,7 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
             </button>
           ) : (
             <button
+              type="button"
               onClick={handleCreate}
               disabled={loading || !canNext()}
               className="flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-medium transition-all active:scale-95
@@ -667,6 +682,7 @@ export default function CreateProjectModal({ onClose, onCreated }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -4,6 +4,7 @@ import useAuthStore from '../store/authStore'
 import api from '../services/api'
 import type { ProjectSummary } from '../types/project'
 import { resolveProjectAnnotatePath } from '../utils/annotationRoutes'
+import { hasPermission, isAdminRole } from '../utils/permissions'
 import CreateProjectModal from '../components/project/CreateProjectModal'
 import DispatchModal from '../components/project/DispatchModal'
 import DatasetImportModal from '../components/dataset/DatasetImportModal'
@@ -181,7 +182,7 @@ const STATUS_FILTERS = [
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyState({ isAdmin, onCreate }: { isAdmin: boolean; onCreate: () => void }) {
+function EmptyState({ canCreate, onCreate }: { canCreate: boolean; onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-32 text-center">
       <div className="w-20 h-20 rounded-2xl bg-[#12121a] border border-[#1e1e2e] flex items-center justify-center mx-auto mb-5">
@@ -194,10 +195,11 @@ function EmptyState({ isAdmin, onCreate }: { isAdmin: boolean; onCreate: () => v
       </div>
       <div className="text-sm text-white/30 mb-1">暂无项目</div>
       <div className="text-xs text-white/15 mb-6">
-        {isAdmin ? '创建第一个标注项目开始工作' : '等待管理员将你加入项目'}
+        {canCreate ? '创建第一个标注项目开始工作' : '等待管理员将你加入项目'}
       </div>
-      {isAdmin && (
+      {canCreate && (
         <button
+          type="button"
           onClick={onCreate}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium
             bg-[#00d4ff]/15 text-[#00d4ff] border border-[#00d4ff]/30
@@ -218,7 +220,10 @@ function EmptyState({ isAdmin, onCreate }: { isAdmin: boolean; onCreate: () => v
 export default function Projects() {
   const navigate   = useNavigate()
   const { user }   = useAuthStore()
-  const isAdmin    = user?.is_admin ?? false
+  const canManageProjects =
+    Boolean(user?.is_admin) ||
+    isAdminRole(user?.role) ||
+    hasPermission(user?.role, 'projects.manage')
 
   const [projects,       setProjects]       = useState<ProjectSummary[]>([])
   const [loading,        setLoading]        = useState(true)
@@ -269,8 +274,9 @@ export default function Projects() {
             <span>{summary.tasks.toLocaleString()} 个任务</span>
           </div>
         </div>
-        {isAdmin && (
+        {canManageProjects && (
           <button
+            type="button"
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-95
               bg-[#00d4ff]/15 text-[#00d4ff] border border-[#00d4ff]/30 hover:bg-[#00d4ff]/25 hover:border-[#00d4ff]/50"
@@ -343,14 +349,14 @@ export default function Projects() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState isAdmin={isAdmin} onCreate={() => setShowCreate(true)} />
+        <EmptyState canCreate={canManageProjects} onCreate={() => setShowCreate(true)} />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map(p => (
             <ProjectCard
               key={p.id}
               project={p}
-              canManage={isAdmin}
+              canManage={canManageProjects}
               onDispatch={setDispatchTarget}
               onImport={setImportTarget}
               onNavigate={(p) => navigate(resolveProjectAnnotatePath(p))}
@@ -364,7 +370,23 @@ export default function Projects() {
       {showCreate && (
         <CreateProjectModal
           onClose={() => setShowCreate(false)}
-          onCreated={() => { fetchProjects(); setShowCreate(false) }}
+          onCreated={(created) => {
+            setShowCreate(false)
+            void fetchProjects()
+            // 创建后自动打开导入数据引导
+            setImportTarget({
+              id: created.id,
+              name: created.name,
+              cover_color: created.cover_color,
+              category: created.category,
+              ann_type: created.ann_type,
+              status: created.status ?? 'draft',
+              total_items: created.total_items ?? 0,
+              approved_items: created.approved_items ?? 0,
+              price_per_task: created.price_per_task ?? 0.1,
+              member_count: created.member_count ?? 1,
+            })
+          }}
         />
       )}
       {dispatchTarget && (

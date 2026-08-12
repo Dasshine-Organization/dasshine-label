@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { message } from 'antd'
 import api from '../../services/api'
 
@@ -484,8 +485,8 @@ export default function DatasetImportModal({ projectId, projectName, category, o
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
       style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
       onClick={e => e.target === e.currentTarget && onClose()}>
 
@@ -759,6 +760,7 @@ export default function DatasetImportModal({ projectId, projectName, category, o
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
