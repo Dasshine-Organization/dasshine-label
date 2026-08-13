@@ -25,6 +25,7 @@ from app.api.v1 import (
     projects,
     quality,
     roles,
+    storage,
     task_prelabel,
     tasks,
     users,
@@ -76,6 +77,7 @@ def create_application() -> FastAPI:
     app.include_router(roles.router, prefix="/api/v1", tags=["角色"])
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(dataset.router, prefix="/api/v1")
+    app.include_router(storage.router, prefix="/api/v1")
     app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])
     app.include_router(annotations.router, prefix="/api/v1", tags=["标注"])
     app.include_router(annotation_drafts.router, prefix="/api/v1", tags=["标注草稿"])
@@ -107,8 +109,9 @@ def create_application() -> FastAPI:
 
     @app.get("/ready")
     async def readiness_check():
-        """就绪探针：数据库可连接。"""
+        """就绪探针：数据库 + 存储可写。"""
         from app.core.database import engine
+        from app.services.file_storage import FileStorageService
 
         db_ok = False
         db_error = None
@@ -120,13 +123,19 @@ def create_application() -> FastAPI:
             db_error = str(e)
             logger.warning("readiness db check failed: %s", e)
 
-        upload_ok = os.path.isdir(upload_path) and os.access(upload_path, os.W_OK)
-        ready = db_ok and upload_ok
+        storage_check = {"ok": False}
+        try:
+            storage_check = FileStorageService().health_check()
+        except Exception as e:
+            storage_check = {"ok": False, "error": str(e)}
+            logger.warning("readiness storage check failed: %s", e)
+
+        ready = db_ok and bool(storage_check.get("ok"))
         payload = {
             "status": "ready" if ready else "not_ready",
             "checks": {
                 "database": {"ok": db_ok, "error": db_error},
-                "upload_dir": {"ok": upload_ok, "path": upload_path},
+                "storage": storage_check,
             },
             "version": settings.APP_VERSION,
         }

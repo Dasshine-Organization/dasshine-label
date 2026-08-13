@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     FILE_SERVER_BASE_URL: str = "http://localhost:8000"
     MAX_UPLOAD_SIZE: int = 100 * 1024 * 1024  # 100MB
     ALLOWED_EXTENSIONS: List[str] = [".txt", ".pdf", ".jpg", ".jpeg", ".png", ".json", ".csv", ".jsonl"]
+
+    # 存储后端：local（默认）| s3（兼容 MinIO / 阿里云 OSS S3 / AWS S3）
+    STORAGE_BACKEND: str = "local"
+    S3_ENDPOINT_URL: Optional[str] = None  # 如 http://minio:9000；AWS 可留空
+    S3_ACCESS_KEY_ID: Optional[str] = None
+    S3_SECRET_ACCESS_KEY: Optional[str] = None
+    S3_BUCKET: Optional[str] = None
+    S3_REGION: str = "us-east-1"
+    S3_PREFIX: str = "dasshine"  # 对象键前缀
+    S3_PUBLIC_BASE_URL: Optional[str] = None  # 浏览器可访问前缀；空则按 endpoint/bucket 拼
+    S3_FORCE_PATH_STYLE: bool = True  # MinIO / 多数兼容实现需要
+    S3_ADDRESSING_STYLE: str = "path"  # path | virtual
+    S3_VERIFY_SSL: bool = True
     
     # 自动标注
     AUTO_LABEL_ENABLED: bool = True

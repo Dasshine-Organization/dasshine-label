@@ -18,7 +18,7 @@
 ### 项目管理
 
 - 创建 / 编辑项目（图像 2D、点云 3D、文本、语音、视频、多模态、具身等类型）
-- **本地图片 / 文件夹 / ZIP / YOLO** 导入，文件落盘至可配置文件服务（`UPLOAD_DIR` + `FILE_SERVER_BASE_URL`）
+- **本地图片 / 文件夹 / ZIP / YOLO** 导入，文件落盘至可配置文件服务（`UPLOAD_DIR` + `FILE_SERVER_BASE_URL`），或 `STORAGE_BACKEND=s3` 写入 S3 兼容对象存储
 - 项目任务网格预览，点击进入对应标注工作台
 - 项目 **归档 / 恢复 / 删除**（级联删除任务与数据）
 
@@ -206,8 +206,9 @@ celery -A app.celery_app worker --loglevel=info
 | `DATABASE_URL` | PostgreSQL 连接串 |
 | `REDIS_URL` | Redis（Celery） |
 | `SECRET_KEY` | JWT 密钥，**生产必须修改** |
-| `UPLOAD_DIR` | 上传文件目录 |
-| `FILE_SERVER_BASE_URL` | 导入图片后 `data_url` 的公网前缀（需浏览器可访问） |
+| `UPLOAD_DIR` | 本地上传目录（`STORAGE_BACKEND=local`） |
+| `FILE_SERVER_BASE_URL` | 本地模式下 `data_url` 公网前缀 |
+| `STORAGE_BACKEND` | `local` 或 `s3`（MinIO/AWS/OSS 兼容，见 `docs/storage_s3.md`） |
 | `BACKEND_CORS_ORIGINS` | 允许的前端源，逗号分隔 |
 | `PRELABEL_ENABLE_LOCAL` | 是否启用本地 YOLO 预标注（需安装 ultralytics） |
 

@@ -45,3 +45,7 @@ chmod +x deploy.sh
 cd backend
 .venv/bin/pytest -q
 ```
+
+## S3 兼容存储
+
+见 [`docs/storage_s3.md`](./storage_s3.md)。`STORAGE_BACKEND=s3` 时导入写入对象桶；`/ready` 会探测 bucket。

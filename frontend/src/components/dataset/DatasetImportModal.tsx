@@ -352,6 +352,14 @@ export default function DatasetImportModal({ projectId, projectName, category, o
   const [file, setFile] = useState<File | null>(null)
   const [localFiles, setLocalFiles] = useState<File[]>([])
   const [fileServerUrl, setFileServerUrl] = useState(DEFAULT_FILE_SERVER)
+  const [storageInfo, setStorageInfo] = useState<{
+    backend?: string
+    configured?: boolean
+    bucket?: string
+    endpoint?: string
+    public_base_url?: string
+    hint?: string
+  } | null>(null)
   const [classNames, setClassNames] = useState('')
   const [textColumn, setTextColumn] = useState('text')
   const [labelColumn, setLabelColumn] = useState('')
@@ -365,6 +373,25 @@ export default function DatasetImportModal({ projectId, projectName, category, o
   )
 
   const activeMethod = METHODS.find(m => m.id === method)!
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await api.get('/storage/config')
+        if (cancelled) return
+        setStorageInfo(data)
+        if (data?.public_base_url) {
+          setFileServerUrl(String(data.public_base_url))
+        }
+      } catch {
+        /* 保持默认本机前缀 */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleImport() {
     setLoading(true)
@@ -580,18 +607,48 @@ export default function DatasetImportModal({ projectId, projectName, category, o
               </div>
             )}
 
-            {(method === 'local_files' || method === 'zip') && (
-              <div>
-                <label className="block text-xs text-white/40 mb-1.5">文件服务地址</label>
-                <input
-                  value={fileServerUrl}
-                  onChange={e => setFileServerUrl(e.target.value)}
-                  placeholder="http://localhost:8000"
-                  className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white font-mono
-                    placeholder-white/20 focus:outline-none focus:border-[#00d4ff]/40 transition-all"
-                />
-                <div className="text-[10px] text-white/20 mt-1">
-                  导入后图片 URL 前缀，默认本机后端；生产环境填写实际文件服务域名
+            {(method === 'local_files' || method === 'zip' || method === 'yolo') && (
+              <div className="space-y-2">
+                {storageInfo && (
+                  <div className="rounded-lg border border-[#1e1e2e] bg-[#0a0a0f] px-3 py-2 text-[11px] text-white/45 space-y-0.5">
+                    <div>
+                      存储后端：
+                      <span className="text-white/70 font-mono ml-1">
+                        {storageInfo.backend === 's3' ? 'S3 兼容' : '本地'}
+                      </span>
+                      {storageInfo.backend === 's3' && storageInfo.bucket && (
+                        <span className="text-white/30 ml-2">bucket={storageInfo.bucket}</span>
+                      )}
+                    </div>
+                    {storageInfo.endpoint && (
+                      <div className="font-mono text-white/30 truncate">endpoint={storageInfo.endpoint}</div>
+                    )}
+                    {storageInfo.hint && <div className="text-white/25">{storageInfo.hint}</div>}
+                    {storageInfo.backend === 's3' && storageInfo.configured === false && (
+                      <div className="text-[#f59e0b]">未配置完整 S3 凭证，导入可能失败</div>
+                    )}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs text-white/40 mb-1.5">
+                    {storageInfo?.backend === 's3' ? '公开访问前缀（可选覆盖）' : '文件服务地址'}
+                  </label>
+                  <input
+                    value={fileServerUrl}
+                    onChange={e => setFileServerUrl(e.target.value)}
+                    placeholder={
+                      storageInfo?.backend === 's3'
+                        ? 'https://cdn.example.com/bucket'
+                        : 'http://localhost:8000'
+                    }
+                    className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white font-mono
+                      placeholder-white/20 focus:outline-none focus:border-[#00d4ff]/40 transition-all"
+                  />
+                  <div className="text-[10px] text-white/20 mt-1">
+                    {storageInfo?.backend === 's3'
+                      ? '对象写入 S3/MinIO；此地址用于拼 data_url，默认同环境 S3_PUBLIC_BASE_URL'
+                      : '导入后图片 URL 前缀，默认本机后端；生产环境填写实际文件服务域名'}
+                  </div>
                 </div>
               </div>
             )}

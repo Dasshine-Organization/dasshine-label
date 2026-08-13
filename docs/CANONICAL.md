@@ -42,3 +42,4 @@
 - 测试：`cd backend && pytest`
 - 前端：Projects / Tasks / Review 使用 React Query
 - 部署：`docs/deploy.md`；类别 Hub：`frontend/src/utils/categoryHubs.ts`（侧栏与工作台同源）
+- 存储：`STORAGE_BACKEND=local|s3`，S3 兼容见 `docs/storage_s3.md`
