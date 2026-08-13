@@ -28,3 +28,10 @@
 - 迁移：`cd backend && .venv/bin/alembic upgrade head`
 - 文档：`docs/schema_category.md`
 - 种子：`python scripts/seed_category_projects.py`
+
+## P3 产品闭环（2D 验收模板延伸）
+
+- **审核**：`/review` → `GET /quality/queue` + `POST /quality/review`；驳回回流 `annotating`
+- **导出**：项目任务页「导出 COCO」→ `GET /export/{id}?format=coco&status=approved`
+- **预标注**：2D 工作台 `demo_template` / YOLO（`/tasks/{id}/prelabel/*`）；LLM/OCR auto-label 返回 501
+- **分发可观测**：`GET /projects/{id}/dispatch-logs` + 项目任务页最近分发

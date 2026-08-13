@@ -73,3 +73,13 @@ def can_administrate_project(db: Session, project: Project, user: User) -> bool:
         return True
     m = get_project_member(db, project.id, user.id)
     return is_project_owner_user(project, m, user)
+
+
+def can_review_project(db: Session, project: Project, user: User) -> bool:
+    """审核任务：平台管理员，或项目 owner/manager/reviewer"""
+    if user.role in (UserRole.SUPER_ADMIN, UserRole.ADMIN):
+        return True
+    m = get_project_member(db, project.id, user.id)
+    if not m:
+        return False
+    return m.role in ("owner", "manager", "reviewer")

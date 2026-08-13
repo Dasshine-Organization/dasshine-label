@@ -34,20 +34,27 @@ async def process_single_task(
     db: Session = Depends(get_db)
 ):
     """
-    对单个任务执行自动标注
-    
-    - 支持NER、分类、情感分析、OCR
-    - 返回标注结果和置信度
+    对单个任务执行自动标注（LLM/OCR 路径）。
+
+    注：2D 图像预标注请使用 /tasks/{id}/prelabel/*（demo_template / YOLO）。
     """
+    from fastapi import HTTPException
+
     service = get_auto_label_service(db)
-    result = await service.process_task(task_id)
-    
+    try:
+        result = await service.process_task(task_id)
+    except NotImplementedError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=f"该自动标注路径未启用：{e}。2D 图像请使用预标注 API /tasks/{{id}}/prelabel/run",
+        ) from e
+
     if not result:
         return {
             "success": False,
-            "message": "自动标注失败，请检查任务是否存在或项目是否启用自动标注"
+            "message": "自动标注失败，请检查任务是否存在或项目是否启用自动标注",
         }
-    
+
     return {
         "success": True,
         "task_id": task_id,
@@ -60,11 +67,11 @@ async def process_single_task(
                 "text": r.text,
                 "start": r.start,
                 "end": r.end,
-                "confidence": r.confidence
+                "confidence": r.confidence,
             }
             for r in result.results
         ],
-        "high_confidence": result.overall_confidence >= 0.8
+        "high_confidence": result.overall_confidence >= 0.8,
     }
 
 

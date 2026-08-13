@@ -45,6 +45,16 @@ const NAV = [
       </svg>
     ),
   },
+  {
+    to: '/review',
+    label: '审核',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+        <path d="M4 4h12v12H4z" strokeLinejoin="round" />
+        <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
 ]
 
 const ADMIN_NAV = {

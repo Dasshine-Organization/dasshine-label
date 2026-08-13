@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { message } from 'antd'
-import api, { projectApi } from '../services/api'
+import api, { exportApi, projectApi } from '../services/api'
 import { getAnnotatePath, getCategoryProjectsPath, resolveTaskMode } from '../utils/annotationRoutes'
 import type { ProjectSummary } from '../types/project'
 import { onProjectTaskStatus } from '../utils/projectTaskStatus'
@@ -18,12 +18,23 @@ type ProjectTaskItem = {
   ann_type?: string
 }
 
+type DispatchLog = {
+  batch_id?: string
+  strategy?: string
+  total?: number
+  assigned?: number
+  failed?: number
+  dispatched_at?: string
+}
+
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   pending: { label: '待领取', color: '#f59e0b' },
   assigned: { label: '已分配', color: '#00d4ff' },
   annotating: { label: '标注中', color: '#00d4ff' },
   submitted: { label: '已提交', color: '#a78bfa' },
+  reviewing: { label: '审核中', color: '#a78bfa' },
   approved: { label: '已通过', color: '#10b981' },
+  rejected: { label: '已驳回', color: '#ef4444' },
 }
 
 export default function ProjectTasks() {
@@ -36,18 +47,30 @@ export default function ProjectTasks() {
   const [items, setItems] = useState<ProjectTaskItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+  const [dispatchLogs, setDispatchLogs] = useState<DispatchLog[]>([])
+  const [stats, setStats] = useState<{
+    submitted?: number
+    approved?: number
+    pending?: number
+    dispatch_count?: number
+  } | null>(null)
 
   const load = useCallback(async () => {
     if (!pid || Number.isNaN(pid)) return
     setLoading(true)
     try {
-      const [projRes, tasksRes] = await Promise.all([
+      const [projRes, tasksRes, logsRes, statsRes] = await Promise.all([
         projectApi.getById(pid),
         api.get(`/projects/${pid}/tasks`, { params: { page: 1, page_size: 200 } }),
+        projectApi.getDispatchLogs(pid, 5).catch(() => ({ data: { logs: [] } })),
+        projectApi.getStats(pid).catch(() => ({ data: null })),
       ])
       setProject(projRes.data)
       setItems(tasksRes.data.items ?? [])
       setTotal(tasksRes.data.total ?? 0)
+      setDispatchLogs((logsRes.data?.logs as DispatchLog[]) ?? [])
+      setStats(statsRes.data)
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail ?? '加载任务失败')
@@ -89,6 +112,42 @@ export default function ProjectTasks() {
     navigate(`${base}${sep}projectId=${pid}`)
   }
 
+  async function exportCoco() {
+    setExporting(true)
+    try {
+      const { data } = await exportApi.exportProject(pid, 'coco', 'approved')
+      const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${project?.name ?? 'project'}_coco.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      message.success('已导出 COCO（已通过任务）')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } | Blob } }
+      let detail = '导出失败（需有已通过任务）'
+      const body = err.response?.data
+      if (body instanceof Blob) {
+        try {
+          const text = await body.text()
+          const parsed = JSON.parse(text) as { detail?: string }
+          if (parsed.detail) detail = parsed.detail
+        } catch {
+          /* ignore */
+        }
+      } else if (typeof body === 'object' && body && 'detail' in body) {
+        detail = String((body as { detail?: string }).detail)
+      }
+      message.error(detail)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const submittedCount =
+    stats?.submitted ?? items.filter(t => t.status === 'submitted' || t.status === 'reviewing').length
+
   return (
     <div className="p-8 max-w-6xl">
       <div className="flex items-center gap-3 mb-6">
@@ -100,24 +159,64 @@ export default function ProjectTasks() {
         </Link>
       </div>
 
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-semibold">{project?.name ?? '项目任务'}</h1>
           <p className="text-xs text-white/30 mt-1">
             共 {total} 条数据
             {project?.category === 'image_2d' && ' · 点击任务进入 2D 标注'}
+            {stats && (
+              <span>
+                {' '}
+                · 待审 {submittedCount} · 已通过 {stats.approved ?? 0} · 分发{' '}
+                {stats.dispatch_count ?? 0} 次
+              </span>
+            )}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          className="px-3 py-1.5 rounded-lg text-xs border border-[#1e1e2e] text-white/40
-            hover:text-white/70 hover:border-white/20 transition-all disabled:opacity-40"
-        >
-          {loading ? '刷新中…' : '刷新'}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            to={`/review?projectId=${pid}`}
+            className="px-3 py-1.5 rounded-lg text-xs border border-[#a78bfa]/30 text-[#a78bfa] hover:bg-[#a78bfa]/10 transition-all"
+          >
+            审核队列{submittedCount ? ` (${submittedCount})` : ''}
+          </Link>
+          <button
+            type="button"
+            onClick={() => void exportCoco()}
+            disabled={exporting}
+            className="px-3 py-1.5 rounded-lg text-xs border border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/10 transition-all disabled:opacity-40"
+          >
+            {exporting ? '导出中…' : '导出 COCO'}
+          </button>
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="px-3 py-1.5 rounded-lg text-xs border border-[#1e1e2e] text-white/40
+              hover:text-white/70 hover:border-white/20 transition-all disabled:opacity-40"
+          >
+            {loading ? '刷新中…' : '刷新'}
+          </button>
+        </div>
       </div>
+
+      {dispatchLogs.length > 0 && (
+        <div className="mb-5 rounded-xl border border-[#1e1e2e] bg-[#12121a] px-4 py-3">
+          <div className="text-[10px] text-white/35 uppercase tracking-wider mb-2">最近分发</div>
+          <div className="space-y-1.5">
+            {dispatchLogs.map((log, i) => (
+              <div key={log.batch_id ?? i} className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/50 font-mono">
+                <span>{log.dispatched_at?.replace('T', ' ').slice(0, 19) ?? '—'}</span>
+                <span>{log.strategy ?? '—'}</span>
+                <span className="text-[#10b981]">成功 {log.assigned ?? 0}</span>
+                <span className="text-[#ef4444]/80">失败 {log.failed ?? 0}</span>
+                <span className="text-white/25 truncate max-w-[140px]">{log.batch_id?.slice(0, 8)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">

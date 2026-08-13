@@ -108,6 +108,14 @@ export const projectApi = {
   // 添加项目成员
   addMember: (projectId: number, userId: number, role: string) =>
     api.post(`/projects/${projectId}/members`, { user_id: userId, role }),
+
+  getDispatchLogs: (projectId: number, limit = 10) =>
+    api.get<{ project_id: number; total: number; logs: Array<Record<string, unknown>> }>(
+      `/projects/${projectId}/dispatch-logs`,
+      { params: { limit } },
+    ),
+
+  getStats: (projectId: number) => api.get(`/projects/${projectId}/stats`),
 }
 
 // 任务相关 API
@@ -239,8 +247,8 @@ export const annotations3DApi = {
 
 // 导出相关 API
 export const exportApi = {
-  // 导出项目数据
-  exportProject: (projectId: number, format: 'json' | 'csv' | 'coco' = 'json', status?: string) =>
+  // 导出项目数据（默认 COCO）
+  exportProject: (projectId: number, format: 'json' | 'csv' | 'coco' = 'coco', status?: string) =>
     api.get(`/export/${projectId}`, {
       params: { format, status },
       responseType: 'blob',
@@ -276,6 +284,24 @@ export const autoLabelApi = {
 
 // 质量控制相关 API
 export const qualityApi = {
+  getQueue: (params?: { project_id?: number; limit?: number }) =>
+    api.get<{ total: number; items: Array<Record<string, unknown>> }>('/quality/queue', {
+      params,
+    }),
+
+  getTaskDetail: (taskId: number) => api.get(`/quality/tasks/${taskId}`),
+
+  review: (data: {
+    task_id: number
+    decision: 'approved' | 'rejected'
+    score?: number
+    feedback?: string
+  }) =>
+    api.post<{ success: boolean; message: string; task_id: number; task_status: string }>(
+      '/quality/review',
+      data,
+    ),
+
   // 执行交叉验证
   crossValidate: (projectId: number, config?: {
     min_agreement_rate?: number

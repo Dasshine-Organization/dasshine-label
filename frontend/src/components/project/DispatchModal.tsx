@@ -13,7 +13,14 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
   const [strategy, setStrategy] = useState<DispatchStrategy>('smart')
   const [batchSize, setBatchSize] = useState(100)
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<{
+    assigned_count?: number
+    failed_count?: number
+    batch_id?: string
+    message?: string
+    strategy?: string
+    assignments?: Array<{ task_id: number; username: string; score: number }>
+  } | null>(null)
 
   const pendingTasks =
     (project.total_tasks ?? project.total_items ?? 0)
@@ -134,13 +141,26 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
           {/* Result */}
           {result && (
             <div className={`rounded-xl p-3 border text-xs space-y-1
-              ${result.assigned_count > 0
+              ${result.assigned_count && result.assigned_count > 0
                 ? 'bg-[#10b981]/10 border-[#10b981]/20 text-[#10b981]'
                 : 'bg-[#ef4444]/10 border-[#ef4444]/20 text-[#ef4444]'}`}>
               <div className="font-medium">{result.message}</div>
               <div className="text-current/60">
-                成功: {result.assigned_count} · 失败: {result.failed_count} · 批次: {result.batch_id?.slice(0, 8)}…
+                策略: {result.strategy} · 成功: {result.assigned_count} · 失败: {result.failed_count}
+                {result.batch_id ? ` · 批次: ${result.batch_id.slice(0, 8)}…` : ''}
               </div>
+              {result.assignments && result.assignments.length > 0 && (
+                <div className="mt-2 max-h-28 overflow-y-auto space-y-0.5 text-current/70 font-mono">
+                  {result.assignments.slice(0, 8).map(a => (
+                    <div key={`${a.task_id}-${a.username}`}>
+                      #{a.task_id} → {a.username} (score {a.score?.toFixed?.(2) ?? a.score})
+                    </div>
+                  ))}
+                  {result.assignments.length > 8 && (
+                    <div>…另有 {result.assignments.length - 8} 条</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

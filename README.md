@@ -105,6 +105,7 @@ dasshine-label/
 - **入口默认**：工作台「业务入口」走 `/projects?category=…` / `/tasks?category=…`；硬编码演示 task 仅出现在「演示入口」，由 `VITE_ENABLE_DEMO_ENTRIES` 控制（开发默认开，生产构建默认关）。
 - **分类字段**：`projects.category` / `projects.ann_type` 为一等列，并与 `annotation_schema` 双写；详见 `docs/schema_category.md`。迁移：`cd backend && alembic upgrade head`。
 - **类别种子**：`python scripts/seed_category_projects.py`（每类一个真实项目，无硬编码 task id）。
+- **P3 闭环**：审核 `/review`；项目任务页导出 COCO；分发日志 `GET /projects/{id}/dispatch-logs`；2D 预标注用 `/tasks/{id}/prelabel/*`。
 
 ---
 

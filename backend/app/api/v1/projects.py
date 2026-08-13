@@ -344,6 +344,45 @@ def dispatch_project(
     return DispatchResult(**result)
 
 
+@router.get("/{project_id}/dispatch-logs")
+def get_dispatch_logs(
+    project_id: int,
+    limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """分发可观测：最近分发批次日志。"""
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权查看分发日志")
+    schema = _get_schema(project)
+    logs = list(schema.get("dispatch_logs") or [])
+    logs = logs[-limit:]
+    logs.reverse()
+    return {
+        "project_id": project_id,
+        "total": len(schema.get("dispatch_logs") or []),
+        "logs": logs,
+    }
+
+
+@router.get("/{project_id}/stats")
+def get_project_stats(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    try:
+        return ProjectService(db).get_stats(project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
 @router.post("/{project_id}/members")
 def add_member(
     project_id: int,

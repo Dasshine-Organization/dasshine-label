@@ -1,13 +1,21 @@
 """
-质量控制API
+质量控制 API：交叉验证、审核队列、专家审核。
 """
 
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from __future__ import annotations
 
-from app.api.deps import get_db, get_current_user, get_current_admin
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session, joinedload
+
+from app.api.deps import get_current_admin, get_current_user, get_db
+from app.models.annotation import Annotation
+from app.models.task import Task, TaskStatus
+from app.models.user import User
+from app.services.project_acl import can_review_project
+from app.services.project_service import _get_schema, _resolve_project_category
 
 router = APIRouter()
 
@@ -38,8 +46,8 @@ class QualityScoreResponse(BaseModel):
 
 class ReviewRequest(BaseModel):
     task_id: int
-    decision: str  # approved | rejected
-    score: Optional[float] = None
+    decision: str = Field(..., pattern="^(approved|rejected)$")
+    score: Optional[float] = Field(None, ge=0, le=100)
     feedback: Optional[str] = None
 
 
@@ -47,6 +55,7 @@ class ReviewResponse(BaseModel):
     success: bool
     message: str
     task_id: int
+    task_status: str
 
 
 class InsertGoldenRequest(BaseModel):
@@ -65,47 +74,64 @@ class QualityReportResponse(BaseModel):
     quality_score: float
 
 
+def _latest_annotation(task: Task) -> Optional[Annotation]:
+    anns = [a for a in (task.annotations or []) if getattr(a, "is_latest", True)]
+    if not anns:
+        return None
+    anns.sort(key=lambda a: a.updated_at or a.created_at or 0, reverse=True)
+    return anns[0]
+
+
+def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
+    if not ann or not isinstance(ann.data, dict):
+        return []
+    data = ann.data
+    session = data.get("session") if isinstance(data.get("session"), dict) else data
+    frames = session.get("frames") if isinstance(session, dict) else None
+    boxes: List[Dict[str, Any]] = []
+    if isinstance(frames, dict):
+        # 优先第 0 帧，否则合并各帧（审核预览）
+        ordered_keys = sorted(frames.keys(), key=lambda k: int(k) if str(k).isdigit() else 0)
+        for key in ordered_keys[:1] or list(frames.keys())[:1]:
+            items = frames.get(key) or []
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict):
+                        boxes.append(item)
+        return boxes
+    raw = data.get("annotations2d") or data.get("bbox")
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    return []
+
+
 @router.post("/quality/cross-validation", response_model=CrossValidationResponse)
 def calculate_cross_validation(
     request: CrossValidationRequest,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """
-    计算任务的交叉验证结果
-    
-    返回多标注员之间的一致性指标
-    """
     from app.services.quality_control import get_quality_service
-    
+
     service = get_quality_service(db)
     result = service.calculate_cross_validation(request.task_id)
-    
     if not result:
         raise HTTPException(status_code=404, detail="任务不存在或无足够标注")
-    
     return result
 
 
 @router.get("/quality/score/{user_id}", response_model=QualityScoreResponse)
 def get_annotator_quality(
     user_id: int,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """
-    获取标注员质量评分
-    
-    综合准确率、一致性、效率的评分
-    """
     from app.services.quality_control import get_quality_service
-    
+
     service = get_quality_service(db)
     score = service.calculate_annotator_quality(user_id)
-    
     if not score:
         raise HTTPException(status_code=404, detail="用户不存在")
-    
     return {
         "user_id": score.user_id,
         "username": score.username,
@@ -113,123 +139,210 @@ def get_annotator_quality(
         "consistency": score.consistency,
         "efficiency": score.efficiency,
         "overall_score": score.overall_score,
-        "level": score.level.value if hasattr(score.level, 'value') else str(score.level),
-        "suggested_level": score.suggested_level.value if hasattr(score.suggested_level, 'value') else str(score.suggested_level)
+        "level": score.level.value if hasattr(score.level, "value") else str(score.level),
+        "suggested_level": (
+            score.suggested_level.value
+            if hasattr(score.suggested_level, "value")
+            else str(score.suggested_level)
+        ),
+    }
+
+
+@router.get("/quality/queue")
+def list_review_queue(
+    project_id: Optional[int] = None,
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """待审核队列：submitted / reviewing。"""
+    q = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee), joinedload(Task.annotations))
+        .filter(Task.status.in_([TaskStatus.SUBMITTED, TaskStatus.REVIEWING]))
+        .order_by(Task.submitted_at.desc(), Task.id.desc())
+    )
+    if project_id:
+        q = q.filter(Task.project_id == project_id)
+
+    rows = q.limit(limit * 3).all()  # 多取后按权限过滤
+    items: List[Dict[str, Any]] = []
+    for task in rows:
+        project = task.project
+        if not project or not can_review_project(db, project, current_user):
+            continue
+        schema = _get_schema(project)
+        latest = _latest_annotation(task)
+        items.append(
+            {
+                "id": task.id,
+                "project_id": task.project_id,
+                "project_name": project.name,
+                "category": _resolve_project_category(project) or schema.get("category"),
+                "ann_type": schema.get("ann_type"),
+                "status": task.status.value if hasattr(task.status, "value") else str(task.status),
+                "data_url": task.data_url,
+                "filename": (task.data or {}).get("file_name")
+                or (task.data or {}).get("filename")
+                or None,
+                "assignee_name": task.assignee.username if task.assignee else None,
+                "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
+                "box_count": len(_extract_preview_boxes(latest)),
+            }
+        )
+        if len(items) >= limit:
+            break
+
+    return {"total": len(items), "items": items}
+
+
+@router.get("/quality/tasks/{task_id}")
+def get_review_task_detail(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """审核详情：图片 URL + 最新提交标注预览。"""
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee), joinedload(Task.annotations))
+        .filter(Task.id == task_id)
+        .first()
+    )
+    if not task or not task.project:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if not can_review_project(db, task.project, current_user):
+        raise HTTPException(status_code=403, detail="无权审核该任务")
+
+    latest = _latest_annotation(task)
+    schema = _get_schema(task.project)
+    data = task.data or {}
+    return {
+        "id": task.id,
+        "project_id": task.project_id,
+        "project_name": task.project.name,
+        "category": _resolve_project_category(task.project) or schema.get("category"),
+        "ann_type": schema.get("ann_type"),
+        "status": task.status.value if hasattr(task.status, "value") else str(task.status),
+        "data_url": task.data_url or data.get("image_url") or data.get("url"),
+        "filename": data.get("file_name") or data.get("filename"),
+        "width": data.get("width"),
+        "height": data.get("height"),
+        "assignee_name": task.assignee.username if task.assignee else None,
+        "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
+        "annotations2d": _extract_preview_boxes(latest),
+        "annotation_id": latest.id if latest else None,
+        "work_time": latest.work_time if latest else task.work_time,
+        "last_reject_feedback": (task.task_metadata or {}).get("last_reject_feedback"),
     }
 
 
 @router.post("/quality/review", response_model=ReviewResponse)
 def review_task(
     request: ReviewRequest,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """
-    审核任务
-    
-    审核员对标注结果进行审核
-    """
+    """审核任务：通过 → approved；驳回 → annotating（回流）。"""
     from app.services.quality_control import get_quality_service
-    
+
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project))
+        .filter(Task.id == request.task_id)
+        .first()
+    )
+    if not task or not task.project:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if not can_review_project(db, task.project, current_user):
+        raise HTTPException(status_code=403, detail="无权审核该任务")
+
     service = get_quality_service(db)
     success = service.review_task(
         task_id=request.task_id,
         reviewer_id=current_user.id,
         decision=request.decision,
         score=request.score,
-        feedback=request.feedback
+        feedback=request.feedback,
     )
-    
     if not success:
-        raise HTTPException(status_code=400, detail="审核失败")
-    
+        raise HTTPException(
+            status_code=400,
+            detail="审核失败：任务状态不可审核（需为已提交/审核中）",
+        )
+
+    db.refresh(task)
+    status = task.status.value if hasattr(task.status, "value") else str(task.status)
     return {
         "success": True,
-        "message": f"任务已{ '通过' if request.decision == 'approved' else '驳回' }",
-        "task_id": request.task_id
+        "message": f"任务已{'通过' if request.decision == 'approved' else '驳回并回流标注'}",
+        "task_id": request.task_id,
+        "task_status": status,
     }
 
 
 @router.post("/quality/insert-golden")
 def insert_golden_tasks(
     request: InsertGoldenRequest,
-    current_user = Depends(get_current_admin),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
 ):
-    """
-    插入黄金标准题（管理员）
-    
-    向项目中插入测试题用于质量监控
-    """
     from app.services.quality_control import get_quality_service
-    
+
     service = get_quality_service(db)
     inserted = service.insert_golden_tasks(request.project_id, request.ratio)
-    
     return {
         "success": True,
         "project_id": request.project_id,
         "inserted": inserted,
-        "ratio": request.ratio
+        "ratio": request.ratio,
     }
 
 
 @router.get("/quality/report/{project_id}", response_model=QualityReportResponse)
 def get_quality_report(
     project_id: int,
-    current_user = Depends(get_current_admin),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
 ):
-    """
-    获取项目质量报告（管理员）
-    """
     from app.services.quality_control import get_quality_service
-    
+
     service = get_quality_service(db)
     report = service.get_project_quality_report(project_id)
-    
     if not report:
         raise HTTPException(status_code=404, detail="项目不存在")
-    
     return report
 
 
 @router.get("/quality/leaderboard")
 def get_quality_leaderboard(
     limit: int = 20,
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """
-    获取标注员质量排行榜
-    """
     from app.services.quality_control import get_quality_service
-    from app.models.user import User
-    
+
     service = get_quality_service(db)
-    
-    # 获取所有标注员
-    annotators = db.query(User).filter(
-        User.completed_tasks > 10
-    ).order_by(
-        User.accuracy_score.desc()
-    ).limit(limit).all()
-    
+    annotators = (
+        db.query(User)
+        .filter(User.completed_tasks > 10)
+        .order_by(User.accuracy_score.desc())
+        .limit(limit)
+        .all()
+    )
     leaderboard = []
     for i, user in enumerate(annotators, 1):
         score = service.calculate_annotator_quality(user.id)
         if score:
-            leaderboard.append({
-                "rank": i,
-                "user_id": user.id,
-                "username": user.username,
-                "accuracy": score.accuracy,
-                "completed_tasks": user.completed_tasks,
-                "level": user.level.value if hasattr(user.level, 'value') else str(user.level),
-                "overall_score": score.overall_score
-            })
-    
-    return {
-        "total": len(leaderboard),
-        "data": leaderboard
-    }
+            leaderboard.append(
+                {
+                    "rank": i,
+                    "user_id": user.id,
+                    "username": user.username,
+                    "accuracy": score.accuracy,
+                    "completed_tasks": user.completed_tasks,
+                    "level": user.level.value if hasattr(user.level, "value") else str(user.level),
+                    "overall_score": score.overall_score,
+                }
+            )
+    return {"total": len(leaderboard), "data": leaderboard}

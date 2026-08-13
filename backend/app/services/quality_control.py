@@ -9,6 +9,7 @@
 """
 
 import logging
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple, Set
 from dataclasses import dataclass
 from collections import defaultdict
@@ -381,22 +382,27 @@ class QualityControlService:
         feedback: str = None
     ) -> bool:
         """
-        审核任务
-        
-        Args:
-            task_id: 任务ID
-            reviewer_id: 审核员ID
-            decision: 审核决定
-            score: 质量评分（可选）
-            feedback: 反馈信息（可选）
-            
-        Returns:
-            是否审核成功
+        审核任务。
+
+        - approved → APPROVED
+        - rejected → ANNOTATING（驳回回流标注，保留原 assignee）
         """
         task = self.db.query(Task).filter(Task.id == task_id).first()
         if not task:
             return False
-        
+
+        status = task.status
+        if status not in (TaskStatus.SUBMITTED, TaskStatus.REVIEWING, TaskStatus.REJECTED):
+            logger.warning(
+                "review_task refused: task %s status=%s",
+                task_id,
+                status.value if hasattr(status, "value") else status,
+            )
+            return False
+
+        if decision not in ("approved", "rejected"):
+            return False
+
         # 创建审核记录
         review = Review(
             task_id=task_id,
@@ -404,23 +410,27 @@ class QualityControlService:
             decision=decision,
             score=score,
             feedback=feedback,
-            issues=self._analyze_issues(task) if decision == 'rejected' else None
+            issues=self._analyze_issues(task) if decision == "rejected" else None,
         )
         self.db.add(review)
-        
-        # 更新任务状态
-        if decision == 'approved':
+
+        if decision == "approved":
             task.status = TaskStatus.APPROVED
-            task.approved_items = task.approved_items + 1 if hasattr(task, 'approved_items') else 1
         else:
-            task.status = TaskStatus.REJECTED
-        
+            # 驳回回流：回到标注中，便于标注员继续修改后再次提交
+            task.status = TaskStatus.ANNOTATING
+            if feedback:
+                meta = dict(task.task_metadata or {})
+                meta["last_reject_feedback"] = feedback
+                meta["last_rejected_at"] = datetime.utcnow().isoformat()
+                task.task_metadata = meta
+
         # 更新标注员评分
-        if score and task.assignee:
+        if score is not None and task.assignee_id:
             self._update_annotator_score(task.assignee_id, score)
-        
+
         self.db.commit()
-        
+
         logger.info(f"任务 {task_id} 审核完成: {decision}")
         return True
     

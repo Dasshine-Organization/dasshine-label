@@ -19,6 +19,7 @@ const PRODUCT_LINKS: QuickLink[] = [
   { label: '视频标注', desc: '仅视频项目', href: '/projects?category=video', color: '#f59e0b', icon: '▶' },
   { label: '具身机器人', desc: '仅具身项目', href: '/projects?category=embodied', color: '#f97316', icon: '◆' },
   { label: '全部任务', desc: '领取与继续全部任务', href: '/tasks', color: '#10b981', icon: '☰' },
+  { label: '审核工作台', desc: '已提交任务通过 / 驳回回流', href: '/review', color: '#a78bfa', icon: '☑' },
   { label: '全部项目', desc: '浏览与管理全部项目', href: '/projects', color: '#f59e0b', icon: '◈' },
 ]
 
