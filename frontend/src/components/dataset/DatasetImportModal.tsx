@@ -33,7 +33,7 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
   {
     id: 'url',
     label: 'URL 列表',
-    desc: '粘贴图像/音频/视频链接，每行一个',
+    desc: '粘贴图像 / 音频 / 视频 / 点云链接，每行一个',
     color: '#00d4ff',
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M6.5 9.5a3 3 0 004.24 0l2-2a3 3 0 00-4.24-4.24l-1 1" strokeLinecap="round"/><path d="M9.5 6.5a3 3 0 00-4.24 0l-2 2a3 3 0 004.24 4.24l1-1" strokeLinecap="round"/></svg>,
   },
@@ -42,7 +42,7 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     label: '文本粘贴',
     desc: '直接粘贴文本内容，每行一条',
     color: '#ec4899',
-    forCategories: ['nlp', 'audio'],
+    forCategories: ['nlp', 'audio', 'ocr'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M2 4h12M2 7h8M2 10h10M2 13h6" strokeLinecap="round"/></svg>,
   },
   {
@@ -56,7 +56,7 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
   {
     id: 'zip',
     label: 'ZIP 文件夹',
-    desc: '上传包含图像/音频/点云的压缩包',
+    desc: '图像 / 音频 / 视频 / 点云（pcd/bin/ply）压缩包',
     color: '#f59e0b',
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M4 2h5l3 3v9a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z"/><path d="M9 2v3h3M7 8v5M5.5 9.5L7 8l1.5 1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   },

@@ -45,10 +45,14 @@ class Project(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200))
     description: Mapped[Optional[str]] = mapped_column(Text)
     
-    # 项目类型和状态
+    # 项目类型和状态（type 为遗留枚举；UI 分类以 category/ann_type 为准）
     type: Mapped[ProjectType] = mapped_column(SQLEnum(ProjectType))
     status: Mapped[ProjectStatus] = mapped_column(SQLEnum(ProjectStatus), default=ProjectStatus.DRAFT)
-    
+
+    # UI 分类一等字段（与 annotation_schema 双写，便于筛选与迁移）
+    category: Mapped[Optional[str]] = mapped_column(String(50), index=True, nullable=True)
+    ann_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
     # 标注规范（JSON Schema）
     annotation_schema: Mapped[Dict[str, Any]] = mapped_column(JSON)
     

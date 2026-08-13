@@ -21,3 +21,10 @@
 | 演示入口 | 硬编码 task（1001/1002/3001/demo…），仅开发或 `VITE_ENABLE_DEMO_ENTRIES=true` |
 
 `DEMO_TASK_IDS` 仍用于工作台识别离线样例数据，但不再作为 Dashboard 默认跳转目标。
+
+## P1 数据约定
+
+- 分类列：`projects.category` / `projects.ann_type`（与 schema 双写）
+- 迁移：`cd backend && .venv/bin/alembic upgrade head`
+- 文档：`docs/schema_category.md`
+- 种子：`python scripts/seed_category_projects.py`

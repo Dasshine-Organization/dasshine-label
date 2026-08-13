@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
-import { getCategoryProjectsPath } from '../utils/annotationRoutes'
+import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { TextSpan } from '../services/modalityAnnotation'
 
 function uid() {
@@ -11,7 +11,9 @@ function uid() {
 
 export default function TextAnnotation() {
   const { taskId = '3001' } = useParams<{ taskId: string }>()
-  const { ws, payload, updatePayload, loading, saving, lastSavedAt, useBackend, persist, submit } =
+  const [searchParams] = useSearchParams()
+  const projectIdParam = searchParams.get('projectId')
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit } =
     useModalityWorkspace(taskId, 'text', 'ner')
 
   const [activeLabel, setActiveLabel] = useState('PER')
@@ -20,6 +22,10 @@ export default function TextAnnotation() {
   const labels = ws?.label_classes ?? []
 
   const spans = payload?.spans ?? []
+  const backHref = getAnnotateBackHref({
+    projectId: projectIdParam ?? ws?.project_id,
+    category: ws?.category ?? 'nlp',
+  })
 
   const highlighted = useMemo(() => {
     if (!text) return null
@@ -81,11 +87,12 @@ export default function TextAnnotation() {
       accent="#ec4899"
       useBackend={useBackend}
       saving={saving}
+      dirty={dirty}
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
-      backHref={getCategoryProjectsPath(ws?.category ?? 'nlp')}
-      backLabel="← 语料项目"
+      backHref={backHref}
+      backLabel="← 返回"
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 h-full">
         <section className="lg:col-span-8 p-4 md:p-6 overflow-y-auto border-r border-[#1e1e2e]">

@@ -13,7 +13,7 @@ import RightPanel from '../components/annotation/RightPanel'
 import ExportPanel from '../components/annotation/ExportPanel'
 import useAuthStore from '../store/authStore'
 import { taskApi } from '../services/api'
-import { isDemoTaskId } from '../utils/annotationRoutes'
+import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
 import { useProjectAnnotationQueue } from '../hooks/useProjectAnnotationQueue'
 import { emitProjectTaskStatus } from '../utils/projectTaskStatus'
 import {
@@ -46,6 +46,7 @@ export default function PointCloudAnnotation() {
   const [aiLoading, setAiLoading] = useState(false)
   const [hydrated, setHydrated] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
+  const [pointCloudUrl, setPointCloudUrl] = useState<string | undefined>(undefined)
   const { boxes3d, labelClasses } = useAnnotationStore()
 
   const numericTaskId = Number(taskId)
@@ -143,6 +144,7 @@ export default function PointCloudAnnotation() {
     let cancelled = false
     workStartRef.current = Date.now()
     setHydrated(false)
+    setPointCloudUrl(undefined)
     useAnnotationStore.getState().setMode('3d')
     useAnnotationStore.getState().setCurrentTask(taskId, 0)
     useAnnotationStore.setState({
@@ -165,6 +167,14 @@ export default function PointCloudAnnotation() {
 
         if (useBackendTask) {
           try {
+            const { data: task } = await taskApi.getById(numericTaskId)
+            if (!cancelled && task?.data_url) {
+              setPointCloudUrl(String(task.data_url))
+            }
+          } catch {
+            /* 无 data_url 时回退 demo / 合成点云 */
+          }
+          try {
             const { data } = await taskApi.getAnnotationDraft(numericTaskId)
             if (cancelled) return
             const remote = parsePointCloudPayload(
@@ -175,6 +185,8 @@ export default function PointCloudAnnotation() {
           } catch {
             /* 使用本地会话 */
           }
+        } else {
+          setPointCloudUrl(undefined)
         }
 
         if (cancelled) return
@@ -278,6 +290,7 @@ export default function PointCloudAnnotation() {
         }
         onManualSave={() => persistNow(true)}
         onSubmit={() => void handleSubmit()}
+        backHref={getAnnotateBackHref({ projectId, category: 'pointcloud_3d' })}
         projectTaskIndex={projectQueue.hasQueue ? projectQueue.taskIndex : undefined}
         projectTaskTotal={projectQueue.hasQueue ? projectQueue.taskTotal : undefined}
         onPrevTask={projectQueue.hasQueue ? projectQueue.goPrevTask : undefined}
@@ -292,7 +305,7 @@ export default function PointCloudAnnotation() {
       <div className="flex flex-1 overflow-hidden">
         <AnnotationToolbar />
         <div className="flex-1 relative overflow-hidden">
-          <Scene3DWorkspace taskId={taskId} />
+          <Scene3DWorkspace taskId={taskId} pointCloudUrl={pointCloudUrl} />
 
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20 pointer-events-auto">
             <button

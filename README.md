@@ -103,6 +103,8 @@ dasshine-label/
 - **唯一工作副本**：本仓库 `Dashine/dasshine-label`。勿在其它本地分叉（如 `VscodeProject/dasshine-label`）上并行改同一功能。
 - **前端真源**：仅 `frontend/src/`（`index.html` → `/src/main.tsx`）。勿再使用根级陈旧 `App.tsx` / `main.tsx`。
 - **入口默认**：工作台「业务入口」走 `/projects?category=…` / `/tasks?category=…`；硬编码演示 task 仅出现在「演示入口」，由 `VITE_ENABLE_DEMO_ENTRIES` 控制（开发默认开，生产构建默认关）。
+- **分类字段**：`projects.category` / `projects.ann_type` 为一等列，并与 `annotation_schema` 双写；详见 `docs/schema_category.md`。迁移：`cd backend && alembic upgrade head`。
+- **类别种子**：`python scripts/seed_category_projects.py`（每类一个真实项目，无硬编码 task id）。
 
 ---
 

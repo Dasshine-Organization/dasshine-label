@@ -21,7 +21,12 @@ from app.schemas.project_schemas import (
     ProjectUpdate,
 )
 from app.services.project_acl import can_administrate_project
-from app.services.project_service import ProjectService, _get_schema, _resolve_project_category
+from app.services.project_service import (
+    ProjectService,
+    _get_schema,
+    _resolve_project_ann_type,
+    _resolve_project_category,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -35,8 +40,8 @@ def _to_summary(p: Project, db: Session) -> dict:
         "id": p.id,
         "name": p.name,
         "cover_color": schema.get("cover_color", "#00d4ff"),
-        "category": schema.get("category") or _resolve_project_category(p) or None,
-        "ann_type": schema.get("ann_type"),
+        "category": _resolve_project_category(p) or None,
+        "ann_type": _resolve_project_ann_type(p) or None,
         "type": type_val,
         "status": status_val,
         "total_items": p.total_items or 0,
@@ -55,8 +60,8 @@ def _to_out(p: Project) -> dict:
         "name": p.name,
         "description": p.description or "",
         "cover_color": schema.get("cover_color", "#00d4ff"),
-        "category": schema.get("category"),
-        "ann_type": schema.get("ann_type"),
+        "category": _resolve_project_category(p) or None,
+        "ann_type": _resolve_project_ann_type(p) or None,
         "status": status_val,
         "dispatch_strategy": schema.get("dispatch_strategy", "smart"),
         "tasks_per_annotator": schema.get("tasks_per_annotator", 10),

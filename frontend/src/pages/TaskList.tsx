@@ -9,6 +9,7 @@ type Status = 'all' | 'pending' | 'in_progress' | 'submitted' | 'approved'
 
 type TaskRow = {
   id: number
+  project_id?: number
   project: string
   type: string
   category?: string
@@ -82,12 +83,13 @@ export default function TaskList() {
   const categoryFilter = searchParams.get('category')
   const { token } = useAuthStore()
   const [activeStatus, setActiveStatus] = useState<Status>('all')
-  const [tasks, setTasks] = useState<TaskRow[]>(MOCK_TASKS)
-  const [loading, setLoading] = useState(false)
+  const [tasks, setTasks] = useState<TaskRow[]>(() => (token ? [] : MOCK_TASKS))
+  const [loading, setLoading] = useState(Boolean(token))
 
   const load = useCallback(async () => {
     if (!token) {
       setTasks(MOCK_TASKS)
+      setLoading(false)
       return
     }
     setLoading(true)
@@ -95,6 +97,7 @@ export default function TaskList() {
       const { data } = await taskApi.getList({ page: 1, page_size: 100 })
       const rows: TaskRow[] = (Array.isArray(data) ? data : []).map((t: Record<string, unknown>) => ({
         id: Number(t.id),
+        project_id: t.project_id != null ? Number(t.project_id) : undefined,
         project: String(t.project ?? ''),
         type: String(t.ann_type ?? t.type ?? ''),
         category: t.category as string | undefined,
@@ -105,8 +108,8 @@ export default function TaskList() {
       }))
       setTasks(rows)
     } catch {
-      if (!token) setTasks(MOCK_TASKS)
-      else setTasks([])
+      setTasks([])
+      message.error('加载任务失败')
     } finally {
       setLoading(false)
     }
@@ -145,7 +148,13 @@ export default function TaskList() {
       type: task.type,
       project: task.project,
     })
-    navigate(getAnnotatePath(task.id, mode))
+    const base = getAnnotatePath(task.id, mode)
+    if (task.project_id) {
+      const sep = base.includes('?') ? '&' : '?'
+      navigate(`${base}${sep}projectId=${task.project_id}`)
+      return
+    }
+    navigate(base)
   }
 
   async function claimAndStart(task: TaskRow) {
@@ -155,7 +164,8 @@ export default function TaskList() {
         message.success('已领取任务')
         await load()
       } catch {
-        message.warning('领取失败，仍进入工作台（演示）')
+        message.error('领取失败，请稍后重试')
+        return
       }
     }
     startTask(task)

@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
-import { getCategoryProjectsPath } from '../utils/annotationRoutes'
+import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { VideoClip } from '../services/modalityAnnotation'
 
 function clipId() {
@@ -11,7 +11,9 @@ function clipId() {
 
 export default function VideoAnnotation() {
   const { taskId = '3003' } = useParams<{ taskId: string }>()
-  const { ws, payload, updatePayload, loading, saving, lastSavedAt, useBackend, persist, submit } =
+  const [searchParams] = useSearchParams()
+  const projectIdParam = searchParams.get('projectId')
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit } =
     useModalityWorkspace(taskId, 'video')
   const videoRef = useRef<HTMLVideoElement>(null)
   const [currentSec, setCurrentSec] = useState(0)
@@ -21,6 +23,10 @@ export default function VideoAnnotation() {
   const url = ws?.content.video_url ?? ''
   const clips = payload?.clips ?? []
   const annType = ws?.ann_type ?? 'video_action'
+  const backHref = getAnnotateBackHref({
+    projectId: projectIdParam ?? ws?.project_id,
+    category: ws?.category ?? 'video',
+  })
 
   function addClip() {
     const start = clipStart ?? Math.max(0, currentSec - 0.5)
@@ -52,11 +58,12 @@ export default function VideoAnnotation() {
       accent="#f59e0b"
       useBackend={useBackend}
       saving={saving}
+      dirty={dirty}
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
-      backHref={getCategoryProjectsPath(ws?.category ?? 'video')}
-      backLabel="← 视频项目"
+      backHref={backHref}
+      backLabel="← 返回"
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 h-full">
         <section className="lg:col-span-7 p-4 border-r border-[#1e1e2e] space-y-4 overflow-y-auto">

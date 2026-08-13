@@ -34,6 +34,8 @@ interface TopBarProps {
   onPrevTask?: () => void;
   onNextTask?: () => void;
   taskStatusLabel?: string;
+  /** 明确返回路径（有 projectId 时应回项目任务列表）；缺省为浏览器后退 */
+  backHref?: string;
 }
 
 export default function AnnotationTopBar({
@@ -52,6 +54,7 @@ export default function AnnotationTopBar({
   onPrevTask,
   onNextTask,
   taskStatusLabel,
+  backHref,
 }: TopBarProps) {
   const navigate = useNavigate()
   const { mode, setMode, annotations2d, boxes3d, saveDraft } = useAnnotationStore()
@@ -86,7 +89,8 @@ export default function AnnotationTopBar({
     <div className="h-12 flex items-center px-4 gap-3 bg-[#12121a] border-b border-[#1e1e2e] flex-shrink-0">
       {/* Back */}
       <button
-        onClick={() => navigate(-1)}
+        type="button"
+        onClick={() => (backHref ? navigate(backHref) : navigate(-1))}
         className="flex items-center gap-1.5 text-white/40 hover:text-white/80 transition-colors text-xs"
       >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3.5 h-3.5">

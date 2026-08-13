@@ -38,7 +38,7 @@ import {
   type PrelabelModelInfo,
 } from '../services/prelabel'
 import { taskApi } from '../services/api'
-import { isDemoTaskId } from '../utils/annotationRoutes'
+import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
 
 const MOCK_IMAGES = [
   'https://images.unsplash.com/photo-1545558014-8692077e9b5c?w=1280&q=80',
@@ -541,6 +541,7 @@ export default function ImageAnnotation() {
         saveHint={lastSavedAt ? `已保存 ${new Date(lastSavedAt).toLocaleTimeString()}` : undefined}
         onManualSave={() => persistNow(true)}
         onSubmit={() => void handleSubmit()}
+        backHref={getAnnotateBackHref({ projectId, category: 'image_2d' })}
         projectTaskIndex={projectQueue.hasQueue ? projectQueue.taskIndex : undefined}
         projectTaskTotal={projectQueue.hasQueue ? projectQueue.taskTotal : undefined}
         onPrevTask={projectQueue.hasQueue ? projectQueue.goPrevTask : undefined}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { message } from 'antd'
 import {
   DEFAULT_ACTION_LABELS,
@@ -15,6 +15,7 @@ import {
 import { embodiedApi } from '../services/embodied'
 import useAuthStore from '../store/authStore'
 import { notifyDraftSaved } from '../utils/draftSaveNotify'
+import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
 
 function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement('a')
@@ -72,8 +73,11 @@ function writeEmbodiedLocalDraft(
 
 export default function EmbodiedAnnotation() {
   const { taskId = 'demo' } = useParams<{ taskId: string }>()
+  const [searchParams] = useSearchParams()
+  const projectIdParam = searchParams.get('projectId')
   const navigate = useNavigate()
   const { token } = useAuthStore()
+  const demoOnly = isDemoTaskId(taskId)
   const mockEpisode = useMemo(() => getEpisodeForTaskId(taskId), [taskId])
   const [episode, setEpisode] = useState<EmbodiedDemoEpisode>(mockEpisode)
   const [useBackend, setUseBackend] = useState(false)
@@ -81,6 +85,11 @@ export default function EmbodiedAnnotation() {
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirtyRef = useRef(false)
   const { streams, totalFrames, clipDurationSec, attribution } = episode
+
+  const backHref = getAnnotateBackHref({
+    projectId: projectIdParam,
+    category: 'embodied',
+  })
 
   const [frame, setFrame] = useState(0)
   /** 逐帧顺序播放（离散帧） */
@@ -112,7 +121,7 @@ export default function EmbodiedAnnotation() {
   }, [taskId, mockEpisode])
 
   useEffect(() => {
-    if (!token) {
+    if (!token || demoOnly) {
       const local = readEmbodiedLocalDraft(taskId)
       if (local) {
         setLabels(local.action_labels?.length ? local.action_labels : [...DEFAULT_ACTION_LABELS])
@@ -128,6 +137,7 @@ export default function EmbodiedAnnotation() {
           ) as Record<number, FrameAnnotation>,
         )
       }
+      setUseBackend(false)
       setHydrated(true)
       return
     }
@@ -182,7 +192,7 @@ export default function EmbodiedAnnotation() {
     return () => {
       cancelled = true
     }
-  }, [taskId, token, mockEpisode])
+  }, [taskId, token, mockEpisode, demoOnly])
 
   const persistWorkspace = useCallback(async (showToast = false) => {
     setSavingDraft(true)
@@ -517,10 +527,10 @@ export default function EmbodiedAnnotation() {
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={() => navigate('/')}
+            onClick={() => navigate(backHref)}
             className="text-xs px-2.5 py-1.5 rounded-lg border border-[#1e1e2e] text-white/50 hover:text-white/80 hover:border-white/20 transition-all"
           >
-            ← 工作台
+            ← 返回
           </button>
           <div className="min-w-0">
             <div className="text-[10px] text-white/35 uppercase tracking-wider">

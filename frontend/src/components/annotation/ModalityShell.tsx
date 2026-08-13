@@ -7,10 +7,11 @@ type Props = {
   accent?: string
   useBackend?: boolean
   saving?: boolean
+  dirty?: boolean
   lastSavedAt?: string | null
   onSave?: () => void
   onSubmit?: () => void
-  /** 返回列表路径，默认 /tasks；语料等可传 /projects?category=nlp */
+  /** 返回列表路径，默认 /tasks；有 projectId 时应传项目任务列表 */
   backHref?: string
   backLabel?: string
   children: ReactNode
@@ -22,6 +23,7 @@ export default function ModalityShell({
   accent = '#ec4899',
   useBackend,
   saving,
+  dirty,
   lastSavedAt,
   onSave,
   onSubmit,
@@ -55,6 +57,11 @@ export default function ModalityShell({
           {useBackend !== undefined && (
             <span className="text-[10px] text-white/30 px-2 py-1 rounded border border-white/10">
               {useBackend ? '已连接后端' : '离线演示'}
+            </span>
+          )}
+          {dirty && !saving && (
+            <span className="text-[10px] text-[#f59e0b]/90 px-2 py-0.5 rounded border border-[#f59e0b]/25">
+              未保存
             </span>
           )}
           {lastSavedAt && (

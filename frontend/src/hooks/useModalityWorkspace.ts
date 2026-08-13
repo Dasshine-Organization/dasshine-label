@@ -68,6 +68,7 @@ export function useModalityWorkspace(
   const [saving, setSaving] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [useBackend, setUseBackend] = useState(false)
+  const [dirty, setDirty] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startRef = useRef(Date.now())
 
@@ -121,6 +122,7 @@ export function useModalityWorkspace(
       try {
         const at = writeLocalDraft(kind, taskId, next)
         setLastSavedAt(at)
+        setDirty(false)
 
         if (useBackend && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
           await modalityApi.saveWorkspace(taskId, next)
@@ -141,6 +143,7 @@ export function useModalityWorkspace(
       setPayload(prev => {
         if (!prev) return prev
         const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }
+        setDirty(true)
         if (saveTimer.current) clearTimeout(saveTimer.current)
         saveTimer.current = setTimeout(() => persist(next), 2000)
         return next
@@ -168,6 +171,7 @@ export function useModalityWorkspace(
     updatePayload,
     loading,
     saving,
+    dirty,
     lastSavedAt,
     useBackend,
     persist,

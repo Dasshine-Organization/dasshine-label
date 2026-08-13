@@ -137,3 +137,17 @@ export function getCategoryTasksPath(category?: string | null): string {
   if (!category) return '/tasks'
   return `/tasks?category=${encodeURIComponent(category)}`
 }
+
+/** 标注页返回：有 projectId 回项目任务列表，否则回类别项目列表 */
+export function getAnnotateBackHref(opts: {
+  projectId?: string | number | null
+  category?: string | null
+}): string {
+  const pid = opts.projectId != null && String(opts.projectId).trim() !== ''
+    ? Number(opts.projectId)
+    : NaN
+  if (Number.isFinite(pid) && pid > 0) {
+    return `/projects/${pid}/tasks`
+  }
+  return getCategoryProjectsPath(opts.category)
+}

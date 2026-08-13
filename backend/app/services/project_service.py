@@ -85,17 +85,28 @@ _PROJECT_TYPE_TO_CATEGORY = {
 
 
 def _resolve_project_category(project: Project) -> str:
-    """解析项目 UI 类别，兼容缺省 category / 仅有 ann_type / 旧 type 字段"""
+    """解析项目 UI 类别：列字段 → schema.category → ann_type → 旧 type"""
+    col = str(getattr(project, "category", None) or "").strip().lower()
+    if col:
+        return col
     schema = _get_schema(project)
     raw = str(schema.get("category") or "").strip().lower()
     if raw:
         return raw
-    ann = str(schema.get("ann_type") or "").strip().lower()
+    ann = str(getattr(project, "ann_type", None) or schema.get("ann_type") or "").strip().lower()
     if ann and ann in _ANN_TYPE_TO_CATEGORY:
         return _ANN_TYPE_TO_CATEGORY[ann]
     type_val = project.type.value if hasattr(project.type, "value") else str(project.type or "")
     type_val = type_val.strip().lower()
     return _PROJECT_TYPE_TO_CATEGORY.get(type_val, type_val)
+
+
+def _resolve_project_ann_type(project: Project) -> str:
+    col = str(getattr(project, "ann_type", None) or "").strip().lower()
+    if col:
+        return col
+    schema = _get_schema(project)
+    return str(schema.get("ann_type") or "").strip().lower()
 
 
 def _project_matches_category(project: Project, category: str) -> bool:
@@ -147,6 +158,8 @@ class ProjectService:
             description=payload.description,
             type=self._map_type(payload.category.value, payload.ann_type.value),
             status=ProjectStatus.DRAFT,
+            category=payload.category.value,
+            ann_type=payload.ann_type.value,
             annotation_schema=schema,
             auto_label_enabled=payload.auto_label_enabled,
             auto_label_model=payload.auto_label_model,
@@ -206,7 +219,7 @@ class ProjectService:
                 (Project.created_by_id == user_id) |
                 Project.id.in_(member_project_ids)
             )
-        # category 存在 annotation_schema JSON 中；兼容缺 category、仅有 ann_type / Project.type
+        # category：优先走列字段 SQL 过滤，再对无列值的旧行做内存兜底
         rows = q.order_by(Project.created_at.desc()).all()
         if category:
             rows = [p for p in rows if _project_matches_category(p, category)]
