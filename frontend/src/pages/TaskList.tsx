@@ -1,23 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { message } from 'antd'
 import { taskApi } from '../services/api'
 import { DEMO_TASK_ROUTES, getAnnotatePath, resolveTaskMode } from '../utils/annotationRoutes'
+import { CATEGORY_HUB_BY_ID } from '../utils/categoryHubs'
 import useAuthStore from '../store/authStore'
+import { useTasksQuery, type TaskListRow } from '../hooks/queries/useTasks'
 
 type Status = 'all' | 'pending' | 'in_progress' | 'submitted' | 'approved'
 
-type TaskRow = {
-  id: number
-  project_id?: number
-  project: string
-  type: string
-  category?: string
-  ann_type?: string
-  status: string
-  priority: number
-  reward: number
-}
+type TaskRow = TaskListRow
 
 const STATUS_MAP: Record<string, { label: string; color: string; tab?: Status }> = {
   pending: { label: '待领取', color: '#f59e0b', tab: 'pending' },
@@ -30,16 +22,9 @@ const STATUS_MAP: Record<string, { label: string; color: string; tab?: Status }>
   rejected: { label: '已驳回', color: '#ef4444' },
 }
 
-const CATEGORY_LABEL: Record<string, string> = {
-  image_2d: '图像 2D',
-  pointcloud_3d: '3D 点云',
-  video: '视频',
-  audio: '语音',
-  nlp: '语料',
-  embodied: '具身',
-  ocr: 'OCR',
-  multimodal: '多模态',
-}
+const CATEGORY_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(CATEGORY_HUB_BY_ID).map(([id, h]) => [id, h.label]),
+)
 
 const ANN_TO_CAT: Record<string, string> = {
   bbox_2d: 'image_2d', polygon: 'image_2d', polyline: 'image_2d',
@@ -83,41 +68,21 @@ export default function TaskList() {
   const categoryFilter = searchParams.get('category')
   const { token } = useAuthStore()
   const [activeStatus, setActiveStatus] = useState<Status>('all')
-  const [tasks, setTasks] = useState<TaskRow[]>(() => (token ? [] : MOCK_TASKS))
-  const [loading, setLoading] = useState(Boolean(token))
+  const {
+    data: apiTasks = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useTasksQuery()
 
-  const load = useCallback(async () => {
-    if (!token) {
-      setTasks(MOCK_TASKS)
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    try {
-      const { data } = await taskApi.getList({ page: 1, page_size: 100 })
-      const rows: TaskRow[] = (Array.isArray(data) ? data : []).map((t: Record<string, unknown>) => ({
-        id: Number(t.id),
-        project_id: t.project_id != null ? Number(t.project_id) : undefined,
-        project: String(t.project ?? ''),
-        type: String(t.ann_type ?? t.type ?? ''),
-        category: t.category as string | undefined,
-        ann_type: t.ann_type as string | undefined,
-        status: String(t.status ?? 'pending'),
-        priority: Number(t.priority ?? 5),
-        reward: Number(t.reward ?? 0.1),
-      }))
-      setTasks(rows)
-    } catch {
-      setTasks([])
-      message.error('加载任务失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [token])
+  const tasks = token ? apiTasks : MOCK_TASKS
+  const loading = Boolean(token) && isLoading
 
   useEffect(() => {
-    load()
-  }, [load])
+    if (isError && token) message.error('加载任务失败')
+  }, [isError, token])
+
+  const load = () => refetch()
 
   const filtered = useMemo(() => {
     return tasks.filter(t => {

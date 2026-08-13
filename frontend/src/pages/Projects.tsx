@@ -1,73 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
-import api from '../services/api'
 import type { ProjectSummary } from '../types/project'
 import { resolveProjectAnnotatePath } from '../utils/annotationRoutes'
+import { CATEGORY_HUB_BY_ID } from '../utils/categoryHubs'
 import { hasPermission, isAdminRole } from '../utils/permissions'
 import CreateProjectModal from '../components/project/CreateProjectModal'
 import DispatchModal from '../components/project/DispatchModal'
 import DatasetImportModal from '../components/dataset/DatasetImportModal'
 import ProjectManageMenu from '../components/project/ProjectManageMenu'
+import {
+  resolveProjectCategory,
+  resolveProjectStatus,
+  useInvalidateProjects,
+  useProjectsQuery,
+} from '../hooks/queries/useProjects'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const CAT_CONFIG: Record<string, { label: string; color: string }> = {
-  image_2d:      { label: '图像 2D',   color: '#00d4ff' },
-  pointcloud_3d: { label: '3D 点云',   color: '#a78bfa' },
-  video:         { label: '视频',       color: '#f59e0b' },
-  audio:         { label: '语音',       color: '#10b981' },
-  nlp:           { label: '语料',       color: '#ec4899' },
-  embodied:      { label: '具身机器人', color: '#f97316' },
-  ocr:           { label: 'OCR',        color: '#06b6d4' },
-  multimodal:    { label: '多模态',     color: '#8b5cf6' },
-}
+const CAT_CONFIG: Record<string, { label: string; color: string }> = Object.fromEntries(
+  Object.entries(CATEGORY_HUB_BY_ID).map(([id, h]) => [id, { label: h.label, color: h.color }]),
+)
 
 const CATEGORY_IDS = Object.keys(CAT_CONFIG) as string[]
-
-const ANN_TYPE_TO_CATEGORY: Record<string, string> = {
-  bbox_2d: 'image_2d', polygon: 'image_2d', polyline: 'image_2d',
-  keypoint: 'image_2d', segmentation: 'image_2d', classification: 'image_2d',
-  bbox_3d: 'pointcloud_3d', lidar_seg: 'pointcloud_3d', lane_3d: 'pointcloud_3d',
-  video_tracking: 'video', video_action: 'video', video_caption: 'video',
-  asr: 'audio', tts_label: 'audio', speaker_diarize: 'audio', emotion_audio: 'audio',
-  ner: 'nlp', re: 'nlp', sentiment: 'nlp', text_classify: 'nlp',
-  qa_pair: 'nlp', summarization: 'nlp', translation: 'nlp',
-  robot_traj: 'embodied', robot_action: 'embodied', robot_grasp: 'embodied', robot_scene: 'embodied',
-  ocr_text: 'ocr', ocr_layout: 'ocr', ocr_table: 'ocr',
-  image_caption: 'multimodal', vqa: 'multimodal', rlhf: 'multimodal',
-}
-
-/** 旧 Project.type → UI category */
-const PROJECT_TYPE_TO_CATEGORY: Record<string, string> = {
-  text_classification: 'nlp',
-  ner: 'nlp',
-  text_summarization: 'nlp',
-  image_classification: 'image_2d',
-  object_detection: 'image_2d',
-  image_segmentation: 'image_2d',
-  ocr: 'ocr',
-  audio_transcription: 'audio',
-  multimodal: 'multimodal',
-}
-
-type ProjectListItem = ProjectSummary & { type?: string }
-
-/** 统一解析项目类别，兼容缺省 category / ann_type / 旧 type */
-function resolveProjectCategory(p: ProjectListItem): string {
-  const raw = (p.category ?? '').toString().trim().toLowerCase()
-  if (raw && CAT_CONFIG[raw]) return raw
-  const ann = (p.ann_type ?? '').toString().trim().toLowerCase()
-  if (ann && ANN_TYPE_TO_CATEGORY[ann]) return ANN_TYPE_TO_CATEGORY[ann]
-  const typ = (p.type ?? '').toString().trim().toLowerCase()
-  if (typ && PROJECT_TYPE_TO_CATEGORY[typ]) return PROJECT_TYPE_TO_CATEGORY[typ]
-  if (typ && CAT_CONFIG[typ]) return typ
-  return raw
-}
-
-function resolveProjectStatus(p: ProjectSummary): string {
-  return (p.status ?? '').toString().trim().toLowerCase()
-}
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   draft:     { label: '草稿',   color: '#5c6070' },
@@ -278,8 +233,13 @@ export default function Projects() {
   const initialCat =
     categoryFromUrl && CAT_CONFIG[categoryFromUrl] ? categoryFromUrl : null
 
-  const [projects,       setProjects]       = useState<ProjectListItem[]>([])
-  const [loading,        setLoading]        = useState(true)
+  const { data: projects = [], isLoading: loading, refetch } = useProjectsQuery()
+  const invalidateProjects = useInvalidateProjects()
+  const fetchProjects = () => {
+    void invalidateProjects()
+    return refetch()
+  }
+
   const [showCreate,     setShowCreate]     = useState(false)
   const [dispatchTarget, setDispatchTarget] = useState<ProjectSummary | null>(null)
   const [importTarget,   setImportTarget]   = useState<ProjectSummary | null>(null)
@@ -301,31 +261,6 @@ export default function Projects() {
     else next.delete('category')
     setSearchParams(next, { replace: true })
   }
-
-  const fetchProjects = useCallback(async () => {
-    setLoading(true)
-    try {
-      // 始终拉全量：类别/状态筛选与「状态」一样只在前端做，避免后端 category 字段缺失时被滤空
-      const { data } = await api.get('/projects', { params: { skip: 0, limit: 200 } })
-      const list = (Array.isArray(data) ? data : []) as ProjectListItem[]
-      setProjects(
-        list.map(p => {
-          const category = resolveProjectCategory(p) || undefined
-          return {
-            ...p,
-            category: category as ProjectSummary['category'],
-            status: (resolveProjectStatus(p) || undefined) as ProjectSummary['status'],
-          }
-        }),
-      )
-    } catch {
-      // keep existing
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { fetchProjects() }, [fetchProjects])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

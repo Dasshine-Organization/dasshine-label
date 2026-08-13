@@ -1,22 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { message } from 'antd'
 import { qualityApi } from '../services/api'
 import { getAnnotatePath, resolveTaskMode } from '../utils/annotationRoutes'
-
-type QueueItem = {
-  id: number
-  project_id: number
-  project_name: string
-  category?: string
-  ann_type?: string
-  status: string
-  data_url?: string
-  filename?: string
-  assignee_name?: string
-  submitted_at?: string
-  box_count?: number
-}
+import {
+  useInvalidateReviewQueue,
+  useReviewQueueQuery,
+} from '../hooks/queries/useReviewQueue'
 
 type ReviewDetail = {
   id: number
@@ -70,40 +60,32 @@ function boxStyle(ann: ReviewDetail['annotations2d'][0], imgW: number, imgH: num
 export default function ReviewQueue() {
   const [searchParams] = useSearchParams()
   const projectFilter = searchParams.get('projectId')
-  const [items, setItems] = useState<QueueItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: items = [], isLoading: loading, isError, error, refetch } = useReviewQueueQuery(projectFilter)
+  const invalidateQueue = useInvalidateReviewQueue()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [detail, setDetail] = useState<ReviewDetail | null>(null)
   const [feedback, setFeedback] = useState('')
   const [acting, setActing] = useState(false)
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const { data } = await qualityApi.getQueue({
-        project_id: projectFilter ? Number(projectFilter) : undefined,
-        limit: 80,
-      })
-      const list = (data.items ?? []) as unknown as QueueItem[]
-      setItems(list)
-      setSelectedId(prev => {
-        if (prev && list.some(i => i.id === prev)) return prev
-        return list[0]?.id ?? null
-      })
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } }
-      message.error(err.response?.data?.detail ?? '加载审核队列失败')
-      setItems([])
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if (isError) {
+      const err = error as { response?: { data?: { detail?: string } } }
+      message.error(err?.response?.data?.detail ?? '加载审核队列失败')
     }
-  }, [projectFilter])
+  }, [isError, error])
 
   useEffect(() => {
-    load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectFilter])
+    setSelectedId(prev => {
+      if (prev && items.some(i => i.id === prev)) return prev
+      return items[0]?.id ?? null
+    })
+  }, [items])
+
+  const load = () => {
+    void invalidateQueue(projectFilter)
+    return refetch()
+  }
 
   useEffect(() => {
     if (!selectedId) {
@@ -154,12 +136,9 @@ export default function ReviewQueue() {
         feedback: feedback.trim() || undefined,
       })
       message.success(data.message ?? (decision === 'approved' ? '已通过' : '已驳回'))
-      setItems(prev => {
-        const nextList = prev.filter(i => i.id !== selectedId)
-        setSelectedId(nextList[0]?.id ?? null)
-        return nextList
-      })
+      setSelectedId(null)
       setDetail(null)
+      await load()
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail ?? '审核失败')

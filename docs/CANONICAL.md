@@ -35,3 +35,10 @@
 - **导出**：项目任务页「导出 COCO」→ `GET /export/{id}?format=coco&status=approved`
 - **预标注**：2D 工作台 `demo_template` / YOLO（`/tasks/{id}/prelabel/*`）；LLM/OCR auto-label 返回 501
 - **分发可观测**：`GET /projects/{id}/dispatch-logs` + 项目任务页最近分发
+
+## P4 平台化
+
+- 观测：`RequestLoggingMiddleware` JSON 访问日志、`/health` + `/ready`、导入失败 `error_count`
+- 测试：`cd backend && pytest`
+- 前端：Projects / Tasks / Review 使用 React Query
+- 部署：`docs/deploy.md`；类别 Hub：`frontend/src/utils/categoryHubs.ts`（侧栏与工作台同源）

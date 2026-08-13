@@ -106,6 +106,7 @@ dasshine-label/
 - **分类字段**：`projects.category` / `projects.ann_type` 为一等列，并与 `annotation_schema` 双写；详见 `docs/schema_category.md`。迁移：`cd backend && alembic upgrade head`。
 - **类别种子**：`python scripts/seed_category_projects.py`（每类一个真实项目，无硬编码 task id）。
 - **P3 闭环**：审核 `/review`；项目任务页导出 COCO；分发日志 `GET /projects/{id}/dispatch-logs`；2D 预标注用 `/tasks/{id}/prelabel/*`。
+- **P4**：观测 `/health` `/ready` + JSON 访问日志；`pytest`；React Query（项目/任务/审核）；部署见 `docs/deploy.md`。
 
 ---
 

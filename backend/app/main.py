@@ -2,34 +2,57 @@
 FastAPI主入口
 """
 
+import logging
 import os
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
+
+from app.api.v1 import (
+    annotation_drafts,
+    annotations,
+    annotations_3d,
+    auth,
+    auto_label,
+    dataset,
+    embodied,
+    export,
+    modality_workspace,
+    project_labels,
+    projects,
+    quality,
+    roles,
+    task_prelabel,
+    tasks,
+    users,
+)
 from app.core.config import settings
-from app.api.v1 import auth, projects, tasks, annotations, users, roles, export, auto_label, quality, annotations_3d
-from app.api.v1 import annotation_drafts, project_labels, task_prelabel, embodied, dataset, modality_workspace
+from app.core.logging_middleware import RequestLoggingMiddleware
+from app.core.logging_setup import setup_logging
+
+logger = logging.getLogger("dasshine.app")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    # 启动时执行
-    print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} 启动中...")
-    
-    # 创建上传目录
+    setup_logging()
+    logger.info(
+        "starting app=%s version=%s debug=%s upload_dir=%s cors=%s",
+        settings.APP_NAME,
+        settings.APP_VERSION,
+        settings.DEBUG,
+        settings.UPLOAD_DIR,
+        settings.BACKEND_CORS_ORIGINS,
+    )
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-    
     yield
-    
-    # 关闭时执行
-    print("👋 应用关闭")
+    logger.info("shutting down")
 
 
 def create_application() -> FastAPI:
-    """创建FastAPI应用实例"""
-    
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.APP_VERSION,
@@ -38,8 +61,8 @@ def create_application() -> FastAPI:
         redoc_url="/redoc" if settings.DEBUG else None,
         lifespan=lifespan,
     )
-    
-    # CORS配置
+
+    app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -47,8 +70,7 @@ def create_application() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
-    # 注册路由
+
     app.include_router(auth.router, prefix="/api/v1", tags=["认证"])
     app.include_router(users.router, prefix="/api/v1", tags=["用户"])
     app.include_router(roles.router, prefix="/api/v1", tags=["角色"])
@@ -65,7 +87,6 @@ def create_application() -> FastAPI:
     app.include_router(quality.router, prefix="/api/v1", tags=["质量控制"])
     app.include_router(embodied.router, prefix="/api/v1")
     app.include_router(modality_workspace.router, prefix="/api/v1")
-    # app.include_router(projects.router, prefix="/api/v1"， tags=["项目管理"])
 
     upload_path = os.path.abspath(settings.UPLOAD_DIR)
     os.makedirs(upload_path, exist_ok=True)
@@ -76,15 +97,46 @@ def create_application() -> FastAPI:
         return {
             "name": settings.APP_NAME,
             "version": settings.APP_VERSION,
-            "docs": "/docs"
+            "docs": "/docs" if settings.DEBUG else None,
         }
-    
+
     @app.get("/health")
     async def health_check():
-        return {"status": "ok"}
-    
+        """存活探针：进程可响应即可。"""
+        return {"status": "ok", "version": settings.APP_VERSION}
+
+    @app.get("/ready")
+    async def readiness_check():
+        """就绪探针：数据库可连接。"""
+        from app.core.database import engine
+
+        db_ok = False
+        db_error = None
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            db_ok = True
+        except Exception as e:
+            db_error = str(e)
+            logger.warning("readiness db check failed: %s", e)
+
+        upload_ok = os.path.isdir(upload_path) and os.access(upload_path, os.W_OK)
+        ready = db_ok and upload_ok
+        payload = {
+            "status": "ready" if ready else "not_ready",
+            "checks": {
+                "database": {"ok": db_ok, "error": db_error},
+                "upload_dir": {"ok": upload_ok, "path": upload_path},
+            },
+            "version": settings.APP_VERSION,
+        }
+        if not ready:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(status_code=503, content=payload)
+        return payload
+
     return app
 
 
-# 创建应用实例
 app = create_application()

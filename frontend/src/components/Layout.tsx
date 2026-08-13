@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import { isAdminRole } from '../utils/permissions'
+import { CATEGORY_HUBS } from '../utils/categoryHubs'
 
 const NAV = [
   {
@@ -26,16 +27,6 @@ const NAV = [
     ),
   },
   {
-    to: '/profile',
-    label: '账户',
-    icon: (
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-        <circle cx="10" cy="7" r="3" />
-        <path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" strokeLinecap="round" />
-      </svg>
-    ),
-  },
-  {
     to: '/tasks',
     label: '任务',
     icon: (
@@ -52,6 +43,16 @@ const NAV = [
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <path d="M4 4h12v12H4z" strokeLinejoin="round" />
         <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    to: '/profile',
+    label: '账户',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+        <circle cx="10" cy="7" r="3" />
+        <path d="M4 17c0-3.3 2.7-6 6-6s6 2.7 6 6" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -81,12 +82,10 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-[#0a0a0f] text-white overflow-hidden">
-      {/* Sidebar */}
       <aside
         className={`flex flex-col bg-[#12121a] border-r border-[#1e1e2e] transition-all duration-200 flex-shrink-0
           ${collapsed ? 'w-14' : 'w-52'}`}
       >
-        {/* Logo */}
         <div className="h-12 flex items-center gap-2.5 px-4 border-b border-[#1e1e2e]">
           <div className="w-6 h-6 rounded-md bg-[#00d4ff]/20 border border-[#00d4ff]/40 flex items-center justify-center flex-shrink-0">
             <div className="w-2 h-2 rounded-sm bg-[#00d4ff]" />
@@ -95,6 +94,7 @@ export default function Layout() {
             <span className="text-sm font-semibold tracking-tight text-white/90">Dasshine</span>
           )}
           <button
+            type="button"
             onClick={() => setCollapsed(v => !v)}
             className="ml-auto text-white/20 hover:text-white/60 transition-colors"
           >
@@ -106,9 +106,8 @@ export default function Layout() {
           </button>
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5">
-          {navItems.map((item) => (
+        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+          {navItems.map(item => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -124,9 +123,34 @@ export default function Layout() {
               {!collapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
+
+          {!collapsed && (
+            <div className="pt-3 mt-2 border-t border-[#1e1e2e]/80">
+              <div className="px-2.5 mb-1.5 text-[10px] uppercase tracking-wider text-white/25">
+                类别入口
+              </div>
+              {CATEGORY_HUBS.map(hub => (
+                <NavLink
+                  key={hub.id}
+                  to={hub.projectsHref}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-all
+                    ${isActive
+                      ? 'bg-white/5 text-white/80'
+                      : 'text-white/35 hover:text-white/65 hover:bg-white/[0.03]'}`
+                  }
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ background: hub.color }}
+                  />
+                  <span className="truncate">{hub.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          )}
         </nav>
 
-        {/* User */}
         <div className="p-3 border-t border-[#1e1e2e]">
           <div className="flex items-center gap-2.5 px-1">
             <div className="w-7 h-7 rounded-full bg-[#7c3aed]/30 border border-[#7c3aed]/40 flex items-center justify-center flex-shrink-0">
@@ -142,6 +166,7 @@ export default function Layout() {
             )}
             {!collapsed && (
               <button
+                type="button"
                 onClick={handleLogout}
                 className="text-white/20 hover:text-red-400 transition-colors"
                 title="退出登录"
@@ -155,7 +180,6 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>

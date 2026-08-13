@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import { isDemoEntriesEnabled } from '../utils/demoMode'
+import { CATEGORY_HUBS } from '../utils/categoryHubs'
 
 const LEVEL_COLORS: Record<string, string> = {
   novice: '#9ba0ad', junior: '#10b981', intermediate: '#00d4ff',
@@ -9,15 +10,16 @@ const LEVEL_COLORS: Record<string, string> = {
 
 type QuickLink = { label: string; desc: string; href: string; color: string; icon: string }
 
-/** 业务入口：一律进类别项目/任务列表，不跳演示 task id */
+/** 业务入口：与侧栏类别 Hub 同源 */
 const PRODUCT_LINKS: QuickLink[] = [
-  { label: '2D 图像标注', desc: '仅图像 2D 项目', href: '/projects?category=image_2d', color: '#00d4ff', icon: '◧' },
-  { label: '3D 点云标注', desc: '仅点云项目', href: '/projects?category=pointcloud_3d', color: '#a78bfa', icon: '⬡' },
-  { label: '语料 · NER', desc: '仅语料项目', href: '/projects?category=nlp', color: '#ec4899', icon: '✎' },
+  ...CATEGORY_HUBS.map(h => ({
+    label: `${h.label}项目`,
+    desc: `仅${h.label}项目`,
+    href: h.projectsHref,
+    color: h.color,
+    icon: '◈',
+  })),
   { label: '语料任务', desc: '仅语言标注待办', href: '/tasks?category=nlp', color: '#f472b6', icon: '☰' },
-  { label: '语音 · ASR', desc: '仅语音项目', href: '/projects?category=audio', color: '#10b981', icon: '♫' },
-  { label: '视频标注', desc: '仅视频项目', href: '/projects?category=video', color: '#f59e0b', icon: '▶' },
-  { label: '具身机器人', desc: '仅具身项目', href: '/projects?category=embodied', color: '#f97316', icon: '◆' },
   { label: '全部任务', desc: '领取与继续全部任务', href: '/tasks', color: '#10b981', icon: '☰' },
   { label: '审核工作台', desc: '已提交任务通过 / 驳回回流', href: '/review', color: '#a78bfa', icon: '☑' },
   { label: '全部项目', desc: '浏览与管理全部项目', href: '/projects', color: '#f59e0b', icon: '◈' },
@@ -79,39 +81,34 @@ export default function Dashboard() {
   return (
     <div className="p-8 space-y-8 max-w-4xl">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          你好，<span style={{ color }}>{user?.username ?? '标注员'}</span>
+        <h1 className="text-xl font-semibold">
+          你好，<span style={{ color }}>{user?.username}</span>
         </h1>
-        <p className="text-sm text-white/30 mt-1">
-          当前等级：<span className="font-medium" style={{ color }}>{user?.level ?? 'novice'}</span>
-          　·　从类别进入真实项目，不再默认跳演示任务
-        </p>
+        <p className="text-xs text-white/30 mt-1">从类别入口进入真实项目，或领取任务开始标注</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map(s => (
           <div key={s.label} className="bg-[#12121a] border border-[#1e1e2e] rounded-xl p-4">
-            <div className="text-[11px] text-white/30 mb-2">{s.label}</div>
-            <div className="text-2xl font-semibold font-mono" style={{ color: s.color }}>
-              {s.value}<span className="text-sm font-normal text-white/30 ml-1">{s.unit}</span>
+            <div className="text-[10px] text-white/30 mb-1">{s.label}</div>
+            <div className="text-lg font-mono font-semibold" style={{ color: s.color }}>
+              {s.value}
+              <span className="text-xs text-white/30 ml-1">{s.unit}</span>
             </div>
           </div>
         ))}
       </div>
 
-      <div>
-        <h2 className="text-sm font-medium text-white/50 mb-4 uppercase tracking-widest">业务入口</h2>
+      <section>
+        <h2 className="text-sm font-medium text-white/60 mb-3">业务入口</h2>
         <LinkGrid links={PRODUCT_LINKS} />
-      </div>
+      </section>
 
       {showDemos && (
-        <div>
-          <h2 className="text-sm font-medium text-white/50 mb-1 uppercase tracking-widest">演示入口</h2>
-          <p className="text-xs text-white/25 mb-4">
-            仅开发环境或设置 <code className="text-white/40">VITE_ENABLE_DEMO_ENTRIES=true</code> 时显示；生产默认隐藏。
-          </p>
+        <section>
+          <h2 className="text-sm font-medium text-white/40 mb-3">演示入口</h2>
           <LinkGrid links={DEMO_LINKS} />
-        </div>
+        </section>
       )}
     </div>
   )

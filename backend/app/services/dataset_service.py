@@ -46,15 +46,34 @@ class ImportResult:
         self.started_at = datetime.utcnow().isoformat()
 
     def to_dict(self):
-        return {
+        payload = {
             "batch_id":   self.batch_id,
             "total":      self.total,
             "success":    self.success,
             "skipped":    self.skipped,
             "errors":     self.errors[:20],
+            "error_count": len(self.errors),
             "started_at": self.started_at,
             "finished_at": datetime.utcnow().isoformat(),
         }
+        if self.errors:
+            logger.warning(
+                "dataset_import_failed batch_id=%s total=%s success=%s skipped=%s errors=%s",
+                self.batch_id,
+                self.total,
+                self.success,
+                self.skipped,
+                self.errors[:5],
+            )
+        else:
+            logger.info(
+                "dataset_import_ok batch_id=%s total=%s success=%s skipped=%s",
+                self.batch_id,
+                self.total,
+                self.success,
+                self.skipped,
+            )
+        return payload
 
 
 class DatasetImportService:
