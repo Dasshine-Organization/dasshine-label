@@ -411,11 +411,13 @@ class DatasetImportService:
                 for stem, img_path in img_files.items():
                     try:
                         img_bytes = zf.read(img_path)
+                        # 始终使用存储后端返回的公网 URL（local / S3）；
+                        # 勿用 ZIP 内相对路径覆盖，否则 S3 下 data_url 会指向错误对象。
                         _, img_url = self.storage.save_bytes(
                             project_id, os.path.basename(img_path), img_bytes, subdir="yolo"
                         )
-                        if base_url_prefix:
-                            img_url = f"{base_url_prefix.rstrip('/')}/{img_path}"
+                        if base_url_prefix and not img_url:
+                            img_url = f"{base_url_prefix.rstrip('/')}/{os.path.basename(img_path)}"
                         pre_label = None
 
                         if stem in lbl_files:

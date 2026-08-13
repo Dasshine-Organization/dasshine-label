@@ -60,7 +60,13 @@ def _is_zip_bytes(content: bytes, filename: Optional[str] = None) -> bool:
 
 
 def _import_service(db: Session, file_server_base_url: str = "") -> DatasetImportService:
-    base = (file_server_base_url or settings.FILE_SERVER_BASE_URL).strip()
+    """构建导入服务。显式传入的前缀优先；S3 模式下空前缀交给 S3_PUBLIC_BASE_URL。"""
+    base = (file_server_base_url or "").strip()
+    backend = (settings.STORAGE_BACKEND or "local").strip().lower()
+    if not base:
+        if backend in ("s3", "minio", "oss"):
+            return DatasetImportService(db, file_server_base_url=None)
+        base = (settings.FILE_SERVER_BASE_URL or "").strip()
     return DatasetImportService(db, file_server_base_url=base or None)
 
 

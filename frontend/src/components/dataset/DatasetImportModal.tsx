@@ -464,6 +464,7 @@ export default function DatasetImportModal({ projectId, projectName, category, o
         form.append('file', file)
         form.append('class_names', classNames)
         form.append('priority', String(priority))
+        form.append('file_server_base_url', fileServerUrl.trim())
         const { data } = await api.post(`/projects/${projectId}/import/yolo`, form, {
           headers: { 'Content-Type': 'multipart/form-data' },
         })
