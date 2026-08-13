@@ -1,5 +1,6 @@
 import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
+import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 
@@ -41,6 +42,13 @@ export default function MultimodalAnnotation() {
       onSubmit={() => submit()}
       backHref={backHref}
       backLabel="← 返回"
+      headerExtra={
+        <ProjectExportMenu
+          projectId={projectIdParam ?? ws?.project_id}
+          projectName={ws?.project_name}
+          compact
+        />
+      }
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 h-full gap-0">
         <section className="p-4 border-r border-[#1e1e2e] flex items-center justify-center bg-black/40">

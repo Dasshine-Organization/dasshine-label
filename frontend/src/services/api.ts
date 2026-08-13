@@ -247,15 +247,28 @@ export const annotations3DApi = {
 
 // 导出相关 API
 export const exportApi = {
-  // 导出项目数据（默认 COCO）
-  exportProject: (projectId: number, format: 'json' | 'csv' | 'coco' = 'coco', status?: string) =>
+  exportProject: (projectId: number, format: string = 'coco', status?: string) =>
     api.get(`/export/${projectId}`, {
       params: { format, status },
       responseType: 'blob',
     }),
 
-  // 获取导出统计
-  getStats: (projectId: number) => api.get(`/export/${projectId}/stats`),
+  getStats: (projectId: number) =>
+    api.get<{
+      project_id: number
+      category?: string
+      default_format?: string
+      export_formats?: string[]
+      formats?: Array<{
+        id: string
+        label: string
+        ext: string
+        description: string
+        primary?: boolean
+      }>
+      approved_tasks?: number
+      ready_for_export?: number
+    }>(`/export/${projectId}/stats`),
 }
 
 // 自动标注相关 API

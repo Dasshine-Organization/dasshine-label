@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
+import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { TextSpan } from '../services/modalityAnnotation'
@@ -93,6 +94,13 @@ export default function TextAnnotation() {
       onSubmit={() => submit()}
       backHref={backHref}
       backLabel="← 返回"
+      headerExtra={
+        <ProjectExportMenu
+          projectId={projectIdParam ?? ws?.project_id}
+          projectName={ws?.project_name}
+          compact
+        />
+      }
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 h-full">
         <section className="lg:col-span-8 p-4 md:p-6 overflow-y-auto border-r border-[#1e1e2e]">

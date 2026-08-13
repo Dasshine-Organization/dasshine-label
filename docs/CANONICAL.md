@@ -32,7 +32,7 @@
 ## P3 产品闭环（2D 验收模板延伸）
 
 - **审核**：`/review` → `GET /quality/queue` + `POST /quality/review`；驳回回流 `annotating`
-- **导出**：项目任务页「导出 COCO」→ `GET /export/{id}?format=coco&status=approved`
+- **导出**：项目任务页「导出数据」→ 按类别三种主流格式（见 `docs/export_formats.md`）→ `GET /export/{id}?format=…&status=approved`
 - **预标注**：2D 工作台 `demo_template` / YOLO（`/tasks/{id}/prelabel/*`）；LLM/OCR auto-label 返回 501
 - **分发可观测**：`GET /projects/{id}/dispatch-logs` + 项目任务页最近分发
 
@@ -43,3 +43,4 @@
 - 前端：Projects / Tasks / Review 使用 React Query
 - 部署：`docs/deploy.md`；类别 Hub：`frontend/src/utils/categoryHubs.ts`（侧栏与工作台同源）
 - 存储：`STORAGE_BACKEND=local|s3`，S3 兼容见 `docs/storage_s3.md`
+- 导出：全模态三种主流格式见 `docs/export_formats.md`

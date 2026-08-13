@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { message } from 'antd'
-import api, { exportApi, projectApi } from '../services/api'
+import api, { projectApi } from '../services/api'
+import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import { getAnnotatePath, getCategoryProjectsPath, resolveTaskMode } from '../utils/annotationRoutes'
 import type { ProjectSummary } from '../types/project'
 import { onProjectTaskStatus } from '../utils/projectTaskStatus'
@@ -47,7 +48,6 @@ export default function ProjectTasks() {
   const [items, setItems] = useState<ProjectTaskItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [exporting, setExporting] = useState(false)
   const [dispatchLogs, setDispatchLogs] = useState<DispatchLog[]>([])
   const [stats, setStats] = useState<{
     submitted?: number
@@ -112,39 +112,6 @@ export default function ProjectTasks() {
     navigate(`${base}${sep}projectId=${pid}`)
   }
 
-  async function exportCoco() {
-    setExporting(true)
-    try {
-      const { data } = await exportApi.exportProject(pid, 'coco', 'approved')
-      const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${project?.name ?? 'project'}_coco.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      message.success('已导出 COCO（已通过任务）')
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } | Blob } }
-      let detail = '导出失败（需有已通过任务）'
-      const body = err.response?.data
-      if (body instanceof Blob) {
-        try {
-          const text = await body.text()
-          const parsed = JSON.parse(text) as { detail?: string }
-          if (parsed.detail) detail = parsed.detail
-        } catch {
-          /* ignore */
-        }
-      } else if (typeof body === 'object' && body && 'detail' in body) {
-        detail = String((body as { detail?: string }).detail)
-      }
-      message.error(detail)
-    } finally {
-      setExporting(false)
-    }
-  }
-
   const submittedCount =
     stats?.submitted ?? items.filter(t => t.status === 'submitted' || t.status === 'reviewing').length
 
@@ -181,14 +148,7 @@ export default function ProjectTasks() {
           >
             审核队列{submittedCount ? ` (${submittedCount})` : ''}
           </Link>
-          <button
-            type="button"
-            onClick={() => void exportCoco()}
-            disabled={exporting}
-            className="px-3 py-1.5 rounded-lg text-xs border border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/10 transition-all disabled:opacity-40"
-          >
-            {exporting ? '导出中…' : '导出 COCO'}
-          </button>
+          <ProjectExportMenu projectId={pid} projectName={project?.name} />
           <button
             type="button"
             onClick={load}

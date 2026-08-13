@@ -14,6 +14,7 @@ type Props = {
   /** 返回列表路径，默认 /tasks；有 projectId 时应传项目任务列表 */
   backHref?: string
   backLabel?: string
+  headerExtra?: ReactNode
   children: ReactNode
 }
 
@@ -29,6 +30,7 @@ export default function ModalityShell({
   onSubmit,
   backHref = '/tasks',
   backLabel = '← 返回',
+  headerExtra,
   children,
 }: Props) {
   const navigate = useNavigate()
@@ -66,9 +68,15 @@ export default function ModalityShell({
           )}
           {lastSavedAt && (
             <span className="text-[10px] text-[#10b981]/80 font-mono" title={lastSavedAt}>
-              已保存 {new Date(lastSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              已保存{' '}
+              {new Date(lastSavedAt).toLocaleTimeString('zh-CN', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })}
             </span>
           )}
+          {headerExtra}
           {onSave && (
             <button
               type="button"

@@ -13,6 +13,7 @@ import {
   timeSecToFrame,
 } from '../mocks/embodiedDemoData'
 import { embodiedApi } from '../services/embodied'
+import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import useAuthStore from '../store/authStore'
 import { notifyDraftSaved } from '../utils/draftSaveNotify'
 import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
@@ -574,6 +575,11 @@ export default function EmbodiedAnnotation() {
           >
             {continuous ? '停止连续播放' : '连续播放'}
           </button>
+          <ProjectExportMenu
+            projectId={projectIdParam}
+            projectName={episode.projectName}
+            compact
+          />
           <button
             type="button"
             onClick={exportJson}
