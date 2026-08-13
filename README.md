@@ -26,10 +26,16 @@
 
 | 模态 | 路径示例 | 说明 |
 |------|----------|------|
-| 图像 2D | `/annotate/2d/:taskId` | 矩形框、多帧会话、草稿自动保存、2D 预标注模型 |
-| 点云 3D | `/annotate/3d/:taskId` | 3D 框与点标注 |
-| 具身 | `/annotate/embodied/:taskId` | 多路视频 + 关节轨迹 |
-| 文本 / 语音 / 视频 / 多模态 | `/annotate/text|audio|video|multimodal/:taskId` | 服务端工作区草稿与提交 |
+| 图像 2D | `/annotate-image/:taskId` | 矩形框、多帧会话、草稿自动保存、2D 预标注模型 |
+| 点云 3D | `/annotate-3d/:taskId` | 3D 框与点标注 |
+| 具身 | `/annotate-embodied/:taskId` | 多路视频 + 关节轨迹 |
+| 文本 | `/annotate-text/:taskId` | NER 等语料工作区草稿与提交 |
+| 语音 | `/annotate-audio/:taskId` | ASR 等语音工作区 |
+| 视频 | `/annotate-video/:taskId` | 时序动作片段 |
+| 多模态 | `/annotate-multimodal/:taskId` | 图文等多模态工作区 |
+| 兼容跳转 | `/annotate/:taskId` | 按任务类型重定向到上述工作台 |
+
+工作台默认从 **项目管理**（`/projects` 或 `/projects?category=…`）进入真实项目任务；硬编码演示 task id 仅在开发演示分区或显式开启 `VITE_ENABLE_DEMO_ENTRIES` 时出现。
 
 ### 任务与状态
 
@@ -91,6 +97,12 @@ dasshine-label/
 │   └── .env.example
 └── docs/                    # 设计文档
 ```
+
+### 开发约定（唯一真源）
+
+- **唯一工作副本**：本仓库 `Dashine/dasshine-label`。勿在其它本地分叉（如 `VscodeProject/dasshine-label`）上并行改同一功能。
+- **前端真源**：仅 `frontend/src/`（`index.html` → `/src/main.tsx`）。勿再使用根级陈旧 `App.tsx` / `main.tsx`。
+- **入口默认**：工作台「业务入口」走 `/projects?category=…` / `/tasks?category=…`；硬编码演示 task 仅出现在「演示入口」，由 `VITE_ENABLE_DEMO_ENTRIES` 控制（开发默认开，生产构建默认关）。
 
 ---
 

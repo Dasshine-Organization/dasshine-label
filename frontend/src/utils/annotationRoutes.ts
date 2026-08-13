@@ -120,29 +120,11 @@ export function resolveProjectAnnotatePath(project: {
     return `/projects/${project.id}/tasks`
   }
 
-  // 无 ID 时回退到各类演示入口
-  if (project.category === 'embodied') {
-    return getAnnotatePath('demo', 'embodied')
+  // 无真实项目 ID 时：优先回类别项目列表，避免误进演示 task
+  if (project.category) {
+    return getCategoryProjectsPath(project.category)
   }
-  if (project.category === 'pointcloud_3d') {
-    return getAnnotatePath(1002, '3d')
-  }
-  if (project.category === 'nlp' || project.category === 'ocr') {
-    return getAnnotatePath(3001, 'text')
-  }
-  if (project.category === 'audio') {
-    return getAnnotatePath(3002, 'audio')
-  }
-  if (project.category === 'video') {
-    return getAnnotatePath(3003, 'video')
-  }
-  if (project.category === 'multimodal') {
-    return getAnnotatePath(3001, 'multimodal')
-  }
-  if (project.category === 'image_2d') {
-    return getAnnotatePath(1001, '2d')
-  }
-  return '/tasks'
+  return '/projects'
 }
 
 /** 标注工作台返回列表时使用的入口（按类别收窄项目/任务） */

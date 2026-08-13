@@ -1,9 +1,21 @@
 """
 数据库初始化脚本
 创建默认管理员账号和测试数据
+
+在仓库根目录执行：
+  python scripts/init_db.py
+或在 backend 目录下确保 PYTHONPATH 含 backend。
 """
+from __future__ import annotations
+
 import sys
-sys.path.insert(0, '/Users/lijianxiong/Documents/VscodeProject/dasshine-label/backend')
+from pathlib import Path
+
+# 以本仓库 backend 为准（勿硬编码其它本地路径 / 分叉副本）
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_BACKEND_ROOT = _REPO_ROOT / "backend"
+if str(_BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_ROOT))
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine
