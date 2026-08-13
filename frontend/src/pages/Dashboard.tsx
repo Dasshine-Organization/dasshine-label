@@ -1,33 +1,24 @@
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
-import { getAnnotatePath } from '../utils/annotationRoutes'
 
 const LEVEL_COLORS: Record<string, string> = {
   novice: '#9ba0ad', junior: '#10b981', intermediate: '#00d4ff',
   senior: '#a78bfa', expert: '#f59e0b',
 }
 
-type QuickLink =
-  | {
-      label: string
-      desc: string
-      taskId: number
-      mode: '2d' | '3d' | 'text' | 'audio' | 'video'
-      color: string
-      icon: string
-    }
-  | { label: string; desc: string; href: string; color: string; icon: string }
+type QuickLink = { label: string; desc: string; href: string; color: string; icon: string }
 
 const QUICK_LINKS: QuickLink[] = [
-  { label: '2D 图像标注', desc: '矩形框 / 多边形 / 关键点', taskId: 1001, mode: '2d', color: '#00d4ff', icon: '◧' },
-  { label: '自动驾驶点云标注', desc: '三维 LiDAR 包围盒', taskId: 1002, mode: '3d', color: '#a78bfa', icon: '⬡' },
-  { label: '语料 · NER', desc: '命名实体 / 情感 / 问答', taskId: 3001, mode: 'text', color: '#ec4899', icon: '✎' },
-  { label: '语音 · ASR', desc: '转写与时间轴片段', taskId: 3002, mode: 'audio', color: '#10b981', icon: '♫' },
-  { label: '视频 · 动作片段', desc: '时序动作与描述', taskId: 3003, mode: 'video', color: '#f59e0b', icon: '▶' },
+  { label: '2D 图像标注', desc: '矩形框 / 多边形 / 关键点', href: '/projects?category=image_2d', color: '#00d4ff', icon: '◧' },
+  { label: '自动驾驶点云标注', desc: '三维 LiDAR 包围盒', href: '/projects?category=pointcloud_3d', color: '#a78bfa', icon: '⬡' },
+  { label: '语料 · NER', desc: '仅语料项目 · 命名实体 / 情感 / 问答', href: '/projects?category=nlp', color: '#ec4899', icon: '✎' },
+  { label: '语料任务', desc: '仅语言标注相关待办', href: '/tasks?category=nlp', color: '#f472b6', icon: '☰' },
+  { label: '语音 · ASR', desc: '转写与时间轴片段', href: '/projects?category=audio', color: '#10b981', icon: '♫' },
+  { label: '视频 · 动作片段', desc: '时序动作与描述', href: '/projects?category=video', color: '#f59e0b', icon: '▶' },
   { label: '具身 · InSight', desc: '多视角演示 · 逐帧与连续播放', href: '/annotate-embodied/demo', color: '#f97316', icon: '⎔' },
   { label: '具身 · ALOHA 四相机', desc: 'LeRobot 真实多路视频', href: '/annotate-embodied/2002', color: '#84cc16', icon: '⬢' },
-  { label: '任务列表', desc: '查看并领取待标注任务', href: '/tasks', color: '#10b981', icon: '☰' },
-  { label: '项目管理', desc: '浏览所有标注项目', href: '/projects', color: '#f59e0b', icon: '◈' },
+  { label: '全部任务', desc: '查看并领取全部待标注任务', href: '/tasks', color: '#10b981', icon: '☰' },
+  { label: '全部项目', desc: '浏览所有标注项目', href: '/projects', color: '#f59e0b', icon: '◈' },
 ]
 
 export default function Dashboard() {
@@ -71,12 +62,11 @@ export default function Dashboard() {
       <div>
         <h2 className="text-sm font-medium text-white/50 mb-4 uppercase tracking-widest">快速开始</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {QUICK_LINKS.map(l => {
-            const href = 'href' in l ? l.href : getAnnotatePath(l.taskId, l.mode)
-            return (
+          {QUICK_LINKS.map(l => (
             <button
-              key={href}
-              onClick={() => navigate(href)}
+              key={l.href}
+              type="button"
+              onClick={() => navigate(l.href)}
               className="flex items-center gap-4 p-4 bg-[#12121a] border border-[#1e1e2e] rounded-xl text-left
                 hover:border-white/20 active:scale-[0.98] transition-all group"
             >
@@ -93,7 +83,7 @@ export default function Dashboard() {
                 <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
-          )})}
+          ))}
         </div>
       </div>
     </div>

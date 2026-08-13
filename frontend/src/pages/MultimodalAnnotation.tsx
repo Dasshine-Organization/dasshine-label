@@ -1,6 +1,7 @@
 import { useParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { getCategoryProjectsPath } from '../utils/annotationRoutes'
 
 const DEMO_IMAGE =
   'https://images.unsplash.com/photo-1545558014-8692077e9b5c?w=960&q=80'
@@ -31,6 +32,8 @@ export default function MultimodalAnnotation() {
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
+      backHref={getCategoryProjectsPath(ws?.category ?? 'multimodal')}
+      backLabel="← 多模态项目"
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 h-full gap-0">
         <section className="p-4 border-r border-[#1e1e2e] flex items-center justify-center bg-black/40">

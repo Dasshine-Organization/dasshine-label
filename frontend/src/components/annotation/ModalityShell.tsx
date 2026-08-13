@@ -10,6 +10,9 @@ type Props = {
   lastSavedAt?: string | null
   onSave?: () => void
   onSubmit?: () => void
+  /** 返回列表路径，默认 /tasks；语料等可传 /projects?category=nlp */
+  backHref?: string
+  backLabel?: string
   children: ReactNode
 }
 
@@ -22,6 +25,8 @@ export default function ModalityShell({
   lastSavedAt,
   onSave,
   onSubmit,
+  backHref = '/tasks',
+  backLabel = '← 返回',
   children,
 }: Props) {
   const navigate = useNavigate()
@@ -34,10 +39,10 @@ export default function ModalityShell({
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={() => navigate('/tasks')}
+            onClick={() => navigate(backHref)}
             className="text-xs px-2.5 py-1.5 rounded-lg border border-[#1e1e2e] text-white/50 hover:text-white/80"
           >
-            ← 任务
+            {backLabel}
           </button>
           <div className="min-w-0">
             <h1 className="text-sm font-semibold truncate" style={{ color: accent }}>
@@ -83,4 +88,3 @@ export default function ModalityShell({
     </div>
   )
 }
-

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { getCategoryProjectsPath } from '../utils/annotationRoutes'
 import type { TextSpan } from '../services/modalityAnnotation'
 
 function uid() {
@@ -83,6 +84,8 @@ export default function TextAnnotation() {
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
+      backHref={getCategoryProjectsPath(ws?.category ?? 'nlp')}
+      backLabel="← 语料项目"
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 h-full">
         <section className="lg:col-span-8 p-4 md:p-6 overflow-y-auto border-r border-[#1e1e2e]">

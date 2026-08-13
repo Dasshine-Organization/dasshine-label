@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { message } from 'antd'
 import api, { projectApi } from '../services/api'
-import { getAnnotatePath, resolveTaskMode } from '../utils/annotationRoutes'
+import { getAnnotatePath, getCategoryProjectsPath, resolveTaskMode } from '../utils/annotationRoutes'
 import type { ProjectSummary } from '../types/project'
 import { onProjectTaskStatus } from '../utils/projectTaskStatus'
 
@@ -92,7 +92,10 @@ export default function ProjectTasks() {
   return (
     <div className="p-8 max-w-6xl">
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/projects" className="text-xs text-white/30 hover:text-white/60 transition-colors">
+        <Link
+          to={getCategoryProjectsPath(project?.category)}
+          className="text-xs text-white/30 hover:text-white/60 transition-colors"
+        >
           ← 项目列表
         </Link>
       </div>
@@ -126,8 +129,11 @@ export default function ProjectTasks() {
         <div className="text-center py-24 border border-dashed border-[#1e1e2e] rounded-2xl">
           <p className="text-sm text-white/30 mb-2">暂无任务数据</p>
           <p className="text-xs text-white/20">请先在项目卡片中「导入数据」</p>
-          <Link to="/projects" className="inline-block mt-4 text-xs text-[#00d4ff] hover:underline">
-            返回项目管理
+          <Link
+            to={getCategoryProjectsPath(project?.category)}
+            className="inline-block mt-4 text-xs text-[#00d4ff] hover:underline"
+          >
+            返回{project?.category ? '该类' : ''}项目管理
           </Link>
         </div>
       ) : project?.category === 'image_2d' ? (

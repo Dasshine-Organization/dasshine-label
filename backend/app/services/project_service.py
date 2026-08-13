@@ -56,6 +56,55 @@ def _get_schema(project: Project) -> Dict[str, Any]:
     return s if isinstance(s, dict) else {}
 
 
+# ann_type → UI category（与前端 ANN_TYPE_TO_CATEGORY 对齐）
+_ANN_TYPE_TO_CATEGORY = {
+    "bbox_2d": "image_2d", "polygon": "image_2d", "polyline": "image_2d",
+    "keypoint": "image_2d", "segmentation": "image_2d", "classification": "image_2d",
+    "bbox_3d": "pointcloud_3d", "lidar_seg": "pointcloud_3d", "lane_3d": "pointcloud_3d",
+    "video_tracking": "video", "video_action": "video", "video_caption": "video",
+    "asr": "audio", "tts_label": "audio", "speaker_diarize": "audio", "emotion_audio": "audio",
+    "ner": "nlp", "re": "nlp", "sentiment": "nlp", "text_classify": "nlp",
+    "qa_pair": "nlp", "summarization": "nlp", "translation": "nlp",
+    "robot_traj": "embodied", "robot_action": "embodied", "robot_grasp": "embodied", "robot_scene": "embodied",
+    "ocr_text": "ocr", "ocr_layout": "ocr", "ocr_table": "ocr",
+    "image_caption": "multimodal", "vqa": "multimodal", "rlhf": "multimodal",
+}
+
+# 旧 Project.type enum → UI category
+_PROJECT_TYPE_TO_CATEGORY = {
+    "text_classification": "nlp",
+    "ner": "nlp",
+    "text_summarization": "nlp",
+    "image_classification": "image_2d",
+    "object_detection": "image_2d",
+    "image_segmentation": "image_2d",
+    "ocr": "ocr",
+    "audio_transcription": "audio",
+    "multimodal": "multimodal",
+}
+
+
+def _resolve_project_category(project: Project) -> str:
+    """解析项目 UI 类别，兼容缺省 category / 仅有 ann_type / 旧 type 字段"""
+    schema = _get_schema(project)
+    raw = str(schema.get("category") or "").strip().lower()
+    if raw:
+        return raw
+    ann = str(schema.get("ann_type") or "").strip().lower()
+    if ann and ann in _ANN_TYPE_TO_CATEGORY:
+        return _ANN_TYPE_TO_CATEGORY[ann]
+    type_val = project.type.value if hasattr(project.type, "value") else str(project.type or "")
+    type_val = type_val.strip().lower()
+    return _PROJECT_TYPE_TO_CATEGORY.get(type_val, type_val)
+
+
+def _project_matches_category(project: Project, category: str) -> bool:
+    want = (category or "").strip().lower()
+    if not want:
+        return True
+    return _resolve_project_category(project) == want
+
+
 def _active_tasks_count(user: User, db: Session) -> int:
     """统计用户当前活跃任务数"""
     return db.query(Task).filter(
@@ -157,7 +206,11 @@ class ProjectService:
                 (Project.created_by_id == user_id) |
                 Project.id.in_(member_project_ids)
             )
-        return q.order_by(Project.created_at.desc()).offset(skip).limit(limit).all()
+        # category 存在 annotation_schema JSON 中；兼容缺 category、仅有 ann_type / Project.type
+        rows = q.order_by(Project.created_at.desc()).all()
+        if category:
+            rows = [p for p in rows if _project_matches_category(p, category)]
+        return rows[skip : skip + limit]
 
     def update(self, project_id: int, payload: ProjectUpdate) -> Project:
         project = self.get(project_id)

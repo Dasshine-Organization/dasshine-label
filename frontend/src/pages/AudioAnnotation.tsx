@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { getCategoryProjectsPath } from '../utils/annotationRoutes'
 import type { AudioSegment } from '../services/modalityAnnotation'
 
 function segId() {
@@ -61,6 +62,8 @@ export default function AudioAnnotation() {
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
+      backHref={getCategoryProjectsPath(ws?.category ?? 'audio')}
+      backLabel="← 语音项目"
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 h-full">
         <section className="lg:col-span-7 p-4 border-r border-[#1e1e2e] flex flex-col gap-4 overflow-y-auto">

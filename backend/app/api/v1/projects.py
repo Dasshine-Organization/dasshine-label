@@ -21,7 +21,7 @@ from app.schemas.project_schemas import (
     ProjectUpdate,
 )
 from app.services.project_acl import can_administrate_project
-from app.services.project_service import ProjectService, _get_schema
+from app.services.project_service import ProjectService, _get_schema, _resolve_project_category
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -30,12 +30,14 @@ def _to_summary(p: Project, db: Session) -> dict:
     schema = _get_schema(p)
     member_count = db.query(ProjectMember).filter(ProjectMember.project_id == p.id).count()
     status_val = p.status.value if hasattr(p.status, "value") else str(p.status)
+    type_val = p.type.value if hasattr(p.type, "value") else str(p.type or "")
     return {
         "id": p.id,
         "name": p.name,
         "cover_color": schema.get("cover_color", "#00d4ff"),
-        "category": schema.get("category"),
+        "category": schema.get("category") or _resolve_project_category(p) or None,
         "ann_type": schema.get("ann_type"),
+        "type": type_val,
         "status": status_val,
         "total_items": p.total_items or 0,
         "approved_items": p.approved_items or 0,

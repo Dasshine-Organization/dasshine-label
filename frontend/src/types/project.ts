@@ -80,6 +80,8 @@ export interface ProjectSummary {
   cover_color?: string
   category?: AnnotationCategory
   ann_type?: AnnotationType
+  /** 旧版 Project.type enum，用于类别回退 */
+  type?: string
   status?: ProjectStatus
   total_tasks?: number
   total_items?: number

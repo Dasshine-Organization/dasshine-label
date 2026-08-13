@@ -115,6 +115,12 @@ export function resolveProjectAnnotatePath(project: {
   category?: string | null
   id?: number
 }): string {
+  // 有真实项目 ID 时进入该项目任务列表（不再跳演示任务）
+  if (project.id != null) {
+    return `/projects/${project.id}/tasks`
+  }
+
+  // 无 ID 时回退到各类演示入口
   if (project.category === 'embodied') {
     return getAnnotatePath('demo', 'embodied')
   }
@@ -133,8 +139,19 @@ export function resolveProjectAnnotatePath(project: {
   if (project.category === 'multimodal') {
     return getAnnotatePath(3001, 'multimodal')
   }
-  if (project.id != null) {
-    return `/projects/${project.id}/tasks`
+  if (project.category === 'image_2d') {
+    return getAnnotatePath(1001, '2d')
   }
   return '/tasks'
+}
+
+/** 标注工作台返回列表时使用的入口（按类别收窄项目/任务） */
+export function getCategoryProjectsPath(category?: string | null): string {
+  if (!category) return '/projects'
+  return `/projects?category=${encodeURIComponent(category)}`
+}
+
+export function getCategoryTasksPath(category?: string | null): string {
+  if (!category) return '/tasks'
+  return `/tasks?category=${encodeURIComponent(category)}`
 }

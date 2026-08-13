@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import api from '../services/api'
 import type { ProjectSummary } from '../types/project'
@@ -21,6 +21,52 @@ const CAT_CONFIG: Record<string, { label: string; color: string }> = {
   embodied:      { label: '具身机器人', color: '#f97316' },
   ocr:           { label: 'OCR',        color: '#06b6d4' },
   multimodal:    { label: '多模态',     color: '#8b5cf6' },
+}
+
+const CATEGORY_IDS = Object.keys(CAT_CONFIG) as string[]
+
+const ANN_TYPE_TO_CATEGORY: Record<string, string> = {
+  bbox_2d: 'image_2d', polygon: 'image_2d', polyline: 'image_2d',
+  keypoint: 'image_2d', segmentation: 'image_2d', classification: 'image_2d',
+  bbox_3d: 'pointcloud_3d', lidar_seg: 'pointcloud_3d', lane_3d: 'pointcloud_3d',
+  video_tracking: 'video', video_action: 'video', video_caption: 'video',
+  asr: 'audio', tts_label: 'audio', speaker_diarize: 'audio', emotion_audio: 'audio',
+  ner: 'nlp', re: 'nlp', sentiment: 'nlp', text_classify: 'nlp',
+  qa_pair: 'nlp', summarization: 'nlp', translation: 'nlp',
+  robot_traj: 'embodied', robot_action: 'embodied', robot_grasp: 'embodied', robot_scene: 'embodied',
+  ocr_text: 'ocr', ocr_layout: 'ocr', ocr_table: 'ocr',
+  image_caption: 'multimodal', vqa: 'multimodal', rlhf: 'multimodal',
+}
+
+/** 旧 Project.type → UI category */
+const PROJECT_TYPE_TO_CATEGORY: Record<string, string> = {
+  text_classification: 'nlp',
+  ner: 'nlp',
+  text_summarization: 'nlp',
+  image_classification: 'image_2d',
+  object_detection: 'image_2d',
+  image_segmentation: 'image_2d',
+  ocr: 'ocr',
+  audio_transcription: 'audio',
+  multimodal: 'multimodal',
+}
+
+type ProjectListItem = ProjectSummary & { type?: string }
+
+/** 统一解析项目类别，兼容缺省 category / ann_type / 旧 type */
+function resolveProjectCategory(p: ProjectListItem): string {
+  const raw = (p.category ?? '').toString().trim().toLowerCase()
+  if (raw && CAT_CONFIG[raw]) return raw
+  const ann = (p.ann_type ?? '').toString().trim().toLowerCase()
+  if (ann && ANN_TYPE_TO_CATEGORY[ann]) return ANN_TYPE_TO_CATEGORY[ann]
+  const typ = (p.type ?? '').toString().trim().toLowerCase()
+  if (typ && PROJECT_TYPE_TO_CATEGORY[typ]) return PROJECT_TYPE_TO_CATEGORY[typ]
+  if (typ && CAT_CONFIG[typ]) return typ
+  return raw
+}
+
+function resolveProjectStatus(p: ProjectSummary): string {
+  return (p.status ?? '').toString().trim().toLowerCase()
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -45,9 +91,11 @@ function ProjectCard({
   onNavigate: (p: ProjectSummary) => void
   onChanged: () => void
 }) {
-  const isArchived = project.status === 'archived'
-  const cat    = CAT_CONFIG[project.category ?? ''] ?? { label: project.category, color: '#9ba0ad' }
-  const st     = STATUS_CONFIG[project.status ?? ''] ?? { label: project.status, color: '#9ba0ad' }
+  const isArchived = resolveProjectStatus(project) === 'archived'
+  const category = resolveProjectCategory(project)
+  const status = resolveProjectStatus(project)
+  const cat    = CAT_CONFIG[category] ?? { label: category || '未分类', color: '#9ba0ad' }
+  const st     = STATUS_CONFIG[status] ?? { label: status || '未知', color: '#9ba0ad' }
   const color  = project.cover_color ?? '#00d4ff'
   const total  = project.total_items ?? project.total_tasks ?? 0
   const approved = project.approved_items ?? project.approved_tasks ?? 0
@@ -166,12 +214,12 @@ function ProjectCard({
 
 // ─── Category filter pills ────────────────────────────────────────────────────
 
-const CAT_FILTERS = [
+const CAT_FILTERS: { id: string | null; label: string }[] = [
   { id: null, label: '全部' },
-  ...Object.entries(CAT_CONFIG).map(([id, c]) => ({ id, label: c.label })),
+  ...CATEGORY_IDS.map(id => ({ id, label: CAT_CONFIG[id].label })),
 ]
 
-const STATUS_FILTERS = [
+const STATUS_FILTERS: { id: string | null; label: string }[] = [
   { id: null,       label: '全部状态' },
   { id: 'draft',    label: '草稿' },
   { id: 'active',   label: '进行中' },
@@ -219,47 +267,105 @@ function EmptyState({ canCreate, onCreate }: { canCreate: boolean; onCreate: () 
 
 export default function Projects() {
   const navigate   = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user }   = useAuthStore()
   const canManageProjects =
     Boolean(user?.is_admin) ||
     isAdminRole(user?.role) ||
     hasPermission(user?.role, 'projects.manage')
 
-  const [projects,       setProjects]       = useState<ProjectSummary[]>([])
+  const categoryFromUrl = searchParams.get('category')
+  const initialCat =
+    categoryFromUrl && CAT_CONFIG[categoryFromUrl] ? categoryFromUrl : null
+
+  const [projects,       setProjects]       = useState<ProjectListItem[]>([])
   const [loading,        setLoading]        = useState(true)
   const [showCreate,     setShowCreate]     = useState(false)
   const [dispatchTarget, setDispatchTarget] = useState<ProjectSummary | null>(null)
   const [importTarget,   setImportTarget]   = useState<ProjectSummary | null>(null)
-  const [catFilter,      setCatFilter]      = useState<string | null>(null)
+  const [catFilter,      setCatFilter]      = useState<string | null>(initialCat)
   const [statusFilter,   setStatusFilter]   = useState<string | null>(null)
   const [search,         setSearch]         = useState('')
+
+  // URL ?category=nlp 与筛选标签双向同步（只改本地筛选，不重新请求）
+  useEffect(() => {
+    const c = searchParams.get('category')
+    if (c && CAT_CONFIG[c]) setCatFilter(c)
+    else if (!c) setCatFilter(null)
+  }, [searchParams])
+
+  function applyCatFilter(id: string | null) {
+    setCatFilter(id)
+    const next = new URLSearchParams(searchParams)
+    if (id) next.set('category', id)
+    else next.delete('category')
+    setSearchParams(next, { replace: true })
+  }
 
   const fetchProjects = useCallback(async () => {
     setLoading(true)
     try {
-      const params: any = { skip: 0, limit: 100 }
-      if (catFilter)    params.category = catFilter
-      if (statusFilter) params.status   = statusFilter
-      const { data } = await api.get('/projects', { params })
-      setProjects(data)
+      // 始终拉全量：类别/状态筛选与「状态」一样只在前端做，避免后端 category 字段缺失时被滤空
+      const { data } = await api.get('/projects', { params: { skip: 0, limit: 200 } })
+      const list = (Array.isArray(data) ? data : []) as ProjectListItem[]
+      setProjects(
+        list.map(p => {
+          const category = resolveProjectCategory(p) || undefined
+          return {
+            ...p,
+            category: category as ProjectSummary['category'],
+            status: (resolveProjectStatus(p) || undefined) as ProjectSummary['status'],
+          }
+        }),
+      )
     } catch {
       // keep existing
     } finally {
       setLoading(false)
     }
-  }, [catFilter, statusFilter])
+  }, [])
 
   useEffect(() => { fetchProjects() }, [fetchProjects])
 
-  const filtered = projects.filter(p =>
-    (!search || p.name.toLowerCase().includes(search.toLowerCase()))
-  )
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return projects.filter(p => {
+      if (q && !(p.name ?? '').toLowerCase().includes(q)) return false
+      if (catFilter && resolveProjectCategory(p) !== catFilter) return false
+      if (statusFilter && resolveProjectStatus(p) !== statusFilter) return false
+      return true
+    })
+  }, [projects, search, catFilter, statusFilter])
 
-  const summary = {
-    total:  projects.length,
-    active: projects.filter(p => p.status === 'active').length,
-    tasks:  projects.reduce((a, p) => a + (p.total_items ?? p.total_tasks ?? 0), 0),
-  }
+  /** 各类别在「当前状态 + 搜索」条件下的数量 */
+  const categoryCounts = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const counts: Record<string, number> = {}
+    for (const id of CATEGORY_IDS) counts[id] = 0
+    for (const p of projects) {
+      if (q && !(p.name ?? '').toLowerCase().includes(q)) continue
+      if (statusFilter && resolveProjectStatus(p) !== statusFilter) continue
+      const cat = resolveProjectCategory(p)
+      if (cat && counts[cat] != null) counts[cat] += 1
+    }
+    return counts
+  }, [projects, search, statusFilter])
+
+  const allVisibleCount = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return projects.filter(p => {
+      if (q && !(p.name ?? '').toLowerCase().includes(q)) return false
+      if (statusFilter && resolveProjectStatus(p) !== statusFilter) return false
+      return true
+    }).length
+  }, [projects, search, statusFilter])
+
+  const summary = useMemo(() => ({
+    total: projects.length,
+    active: projects.filter(p => resolveProjectStatus(p) === 'active').length,
+    tasks: projects.reduce((a, p) => a + (p.total_items ?? p.total_tasks ?? 0), 0),
+    shown: filtered.length,
+  }), [projects, filtered])
 
   return (
     <div className="p-8 max-w-screen-xl">
@@ -267,11 +373,23 @@ export default function Projects() {
       {/* Header */}
       <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-xl font-semibold">项目管理</h1>
+          <h1 className="text-xl font-semibold">
+            {catFilter && CAT_CONFIG[catFilter]
+              ? `${CAT_CONFIG[catFilter].label}项目`
+              : '项目管理'}
+          </h1>
           <div className="flex items-center gap-4 mt-2 text-xs text-white/30">
             <span>{summary.total} 个项目</span>
             <span>{summary.active} 个进行中</span>
             <span>{summary.tasks.toLocaleString()} 个任务</span>
+            {(catFilter || statusFilter || search.trim()) && (
+              <span className="text-[#00d4ff]/70">
+                {catFilter && CAT_CONFIG[catFilter]
+                  ? `「${CAT_CONFIG[catFilter].label}」`
+                  : ''}
+                当前显示 {summary.shown} 个
+              </span>
+            )}
           </div>
         </div>
         {canManageProjects && (
@@ -308,10 +426,11 @@ export default function Projects() {
           </div>
 
           {/* Status filter */}
-          <div className="flex gap-1">
+          <div className="flex gap-1 flex-wrap">
             {STATUS_FILTERS.map(f => (
               <button
                 key={String(f.id)}
+                type="button"
                 onClick={() => setStatusFilter(f.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs transition-all
                   ${statusFilter === f.id
@@ -325,19 +444,31 @@ export default function Projects() {
         </div>
 
         {/* Category pills */}
-        <div className="flex gap-1.5 flex-wrap">
-          {CAT_FILTERS.map(f => (
-            <button
-              key={String(f.id)}
-              onClick={() => setCatFilter(f.id)}
-              className={`px-3 py-1 rounded-full text-xs transition-all
-                ${catFilter === f.id
-                  ? 'bg-[#00d4ff]/15 text-[#00d4ff] border border-[#00d4ff]/30'
-                  : 'bg-[#12121a] border border-[#1e1e2e] text-white/40 hover:text-white/70 hover:border-white/20'}`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex gap-1.5 flex-wrap items-center">
+          {catFilter && CAT_CONFIG[catFilter] && (
+            <span className="text-[11px] text-white/35 mr-1">
+              仅展示「{CAT_CONFIG[catFilter].label}」
+            </span>
+          )}
+          {CAT_FILTERS.map(f => {
+            const count = f.id == null ? allVisibleCount : (categoryCounts[f.id] ?? 0)
+            return (
+              <button
+                key={String(f.id)}
+                type="button"
+                onClick={() => applyCatFilter(f.id)}
+                className={`px-3 py-1 rounded-full text-xs transition-all
+                  ${catFilter === f.id
+                    ? 'bg-[#00d4ff]/15 text-[#00d4ff] border border-[#00d4ff]/30'
+                    : 'bg-[#12121a] border border-[#1e1e2e] text-white/40 hover:text-white/70 hover:border-white/20'}`}
+              >
+                {f.label}
+                <span className={`ml-1 font-mono ${catFilter === f.id ? 'text-[#00d4ff]/70' : 'text-white/25'}`}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -348,8 +479,30 @@ export default function Projects() {
             <div key={i} className="h-56 bg-[#12121a] border border-[#1e1e2e] rounded-2xl animate-pulse" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : projects.length === 0 ? (
         <EmptyState canCreate={canManageProjects} onCreate={() => setShowCreate(true)} />
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-[#1e1e2e] rounded-2xl">
+          <div className="text-sm text-white/30 mb-1">没有符合筛选条件的项目</div>
+          <div className="text-xs text-white/15 mb-4 max-w-sm">
+            {catFilter && statusFilter
+              ? `「${STATUS_CONFIG[statusFilter]?.label ?? statusFilter}」状态下没有「${CAT_CONFIG[catFilter]?.label ?? catFilter}」项目，可先切回「全部状态」再试`
+              : catFilter
+                ? `当前没有「${CAT_CONFIG[catFilter]?.label ?? catFilter}」项目（可点「全部」查看其它类别）`
+                : '试试切换「全部」或清除搜索关键词'}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              applyCatFilter(null)
+              setStatusFilter(null)
+              setSearch('')
+            }}
+            className="px-4 py-2 rounded-lg text-xs border border-[#1e1e2e] text-white/40 hover:text-white/70 hover:border-white/20"
+          >
+            清除筛选
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map(p => (
