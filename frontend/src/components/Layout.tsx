@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
 import { isAdminRole } from '../utils/permissions'
 import { CATEGORY_HUBS } from '../utils/categoryHubs'
+import OrgSwitcher from './OrgSwitcher'
 
 const NAV = [
   {
@@ -152,6 +153,7 @@ export default function Layout() {
         </nav>
 
         <div className="p-3 border-t border-[#1e1e2e]">
+          <OrgSwitcher collapsed={collapsed} />
           <div className="flex items-center gap-2.5 px-1">
             <div className="w-7 h-7 rounded-full bg-[#7c3aed]/30 border border-[#7c3aed]/40 flex items-center justify-center flex-shrink-0">
               <span className="text-[10px] font-medium text-[#a78bfa]">

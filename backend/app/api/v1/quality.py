@@ -63,6 +63,12 @@ class InsertGoldenRequest(BaseModel):
     ratio: float = 0.1
 
 
+class GoldenAnswerUpdate(BaseModel):
+    data: Dict[str, Any] = Field(default_factory=dict)
+    source: str = "expert"
+    confidence: float = Field(1.0, ge=0, le=1)
+
+
 class QualityReportResponse(BaseModel):
     project_id: int
     project_name: str
@@ -102,7 +108,103 @@ def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
     raw = data.get("annotations2d") or data.get("bbox")
     if isinstance(raw, list):
         return [x for x in raw if isinstance(x, dict)]
-    return []
+    # OCR spans with bbox
+    spans = data.get("spans")
+    if isinstance(spans, list):
+        for s in spans:
+            if not isinstance(s, dict) or not s.get("bbox"):
+                continue
+            bbox = s["bbox"]
+            boxes.append({
+                "id": s.get("id"),
+                "label": s.get("label") or s.get("text") or "text",
+                "text": s.get("text"),
+                "bbox": bbox,
+                "xywh": bbox,
+            })
+    return boxes
+
+
+def _extract_modality_preview(
+    ann: Optional[Annotation],
+    category: Optional[str],
+    ann_type: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """NLP / 音频 / 视频 / OCR / 多模态审核摘要。"""
+    if not ann or not isinstance(ann.data, dict):
+        return None
+    data = ann.data
+    modality = str(data.get("modality") or "")
+    if not modality:
+        if category == "ocr" or (ann_type or "").startswith("ocr_"):
+            modality = "ocr"
+        elif category == "nlp":
+            modality = "text"
+        elif category in ("audio", "video", "multimodal"):
+            modality = category
+        elif data.get("spans") and data.get("bbox") is None:
+            modality = "text"
+        else:
+            return None
+    if modality == "text":
+        spans = data.get("spans") if isinstance(data.get("spans"), list) else []
+        return {
+            "modality": "text",
+            "spans": spans[:40],
+            "classification_labels": data.get("classification_labels") or [],
+            "sentiment": data.get("sentiment"),
+            "summary": (data.get("summary") or "")[:400],
+            "translation": (data.get("translation") or "")[:400],
+            "qa_pairs": (data.get("qa_pairs") or [])[:5],
+        }
+    if modality == "ocr":
+        spans = data.get("spans") if isinstance(data.get("spans"), list) else []
+        return {
+            "modality": "ocr",
+            "spans": spans[:40],
+            "span_count": len(spans),
+        }
+    if modality == "audio":
+        return {
+            "modality": "audio",
+            "transcript": (data.get("transcript") or "")[:800],
+            "speakers": data.get("speakers") or [],
+            "segments": (data.get("segments") or [])[:30],
+        }
+    if modality == "video":
+        return {
+            "modality": "video",
+            "caption": (data.get("caption") or "")[:400],
+            "clips": (data.get("clips") or [])[:20],
+            "frame_notes": data.get("frame_notes") or {},
+        }
+    if modality == "multimodal":
+        return {
+            "modality": "multimodal",
+            "caption": (data.get("caption") or "")[:400],
+            "vqa": data.get("vqa") or {},
+        }
+    return None
+
+
+def _extract_pointcloud_preview(task: Task, ann: Optional[Annotation]) -> Optional[Dict[str, Any]]:
+    """点云审核预览：点云 URL + boxes3d。"""
+    data = task.data if isinstance(task.data, dict) else {}
+    payload = ann.data if ann and isinstance(ann.data, dict) else {}
+    session = payload.get("session") if isinstance(payload.get("session"), dict) else payload
+    boxes = []
+    if isinstance(session, dict):
+        raw = session.get("boxes3d") or session.get("annotations_3d") or []
+        if isinstance(raw, list):
+            boxes = [b for b in raw if isinstance(b, dict)]
+    url = task.data_url or data.get("point_cloud_url") or data.get("url")
+    if not url and not boxes:
+        return None
+    return {
+        "point_cloud_url": url,
+        "boxes3d": boxes[:200],
+        "box_count": len(boxes),
+    }
 
 
 def _extract_embodied_preview(task: Task, ann: Optional[Annotation]) -> Optional[Dict[str, Any]]:
@@ -230,6 +332,7 @@ def list_review_queue(
                 "assignee_name": task.assignee.username if task.assignee else None,
                 "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
                 "box_count": len(_extract_preview_boxes(latest)),
+                "modality": (latest.data or {}).get("modality") if latest and isinstance(latest.data, dict) else None,
             }
         )
         if len(items) >= limit:
@@ -266,6 +369,15 @@ def get_review_task_detail(
         and str((latest.data or {}).get("schema") or "").startswith("dasshine.embodied")
     ):
         embodied_preview = _extract_embodied_preview(task, latest)
+    modality_preview = None
+    if not embodied_preview:
+        modality_preview = _extract_modality_preview(latest, category, schema.get("ann_type"))
+    pointcloud_preview = None
+    if category == "pointcloud_3d" or (
+        isinstance(latest.data if latest else None, dict)
+        and str((latest.data or {}).get("schema") or "").startswith("dasshine.pointcloud")
+    ):
+        pointcloud_preview = _extract_pointcloud_preview(task, latest)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -281,6 +393,9 @@ def get_review_task_detail(
         "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
         "annotations2d": _extract_preview_boxes(latest),
         "embodied_preview": embodied_preview,
+        "modality_preview": modality_preview,
+        "pointcloud_preview": pointcloud_preview,
+        "is_golden": bool(task.is_golden),
         "annotation_id": latest.id if latest else None,
         "work_time": latest.work_time if latest else task.work_time,
         "last_reject_feedback": (task.task_metadata or {}).get("last_reject_feedback"),
@@ -346,6 +461,40 @@ def insert_golden_tasks(
         "project_id": request.project_id,
         "inserted": inserted,
         "ratio": request.ratio,
+    }
+
+
+@router.put("/quality/tasks/{task_id}/golden-answer")
+def update_golden_answer(
+    task_id: int,
+    body: GoldenAnswerUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """专家写入/更新黄金标准答案。"""
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project))
+        .filter(Task.id == task_id)
+        .first()
+    )
+    if not task or not task.project:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if not can_review_project(db, task.project, current_user):
+        raise HTTPException(status_code=403, detail="无权编辑黄金答案")
+
+    task.is_golden = True
+    task.golden_answer = {
+        "data": body.data,
+        "source": body.source or "expert",
+        "confidence": body.confidence,
+    }
+    db.commit()
+    return {
+        "success": True,
+        "task_id": task_id,
+        "is_golden": True,
+        "has_golden_answer": True,
     }
 
 

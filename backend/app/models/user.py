@@ -5,7 +5,7 @@
 import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import String, Boolean, DateTime, Text, ForeignKey, Enum as SQLEnum, Table, Column
+from sqlalchemy import String, Boolean, DateTime, Text, Integer, ForeignKey, Enum as SQLEnum, Table, Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
 from app.models.base import Base, TimestampMixin
 
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from app.models.annotation import Annotation
     from app.models.annotation_draft import AnnotationDraft
     from app.models.embodied import EmbodiedWorkspace
+    from app.models.organization import OrganizationMember
 
 
 class UserRole(str, enum.Enum):
@@ -73,9 +74,17 @@ class User(Base, TimestampMixin):
     
     # 最后登录
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # 当前工作组织（多租户）
+    active_org_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     
     # 关系
     projects: Mapped[List["ProjectMember"]] = relationship("ProjectMember", back_populates="user")
+    org_memberships: Mapped[List["OrganizationMember"]] = relationship(
+        "OrganizationMember", back_populates="user", cascade="all, delete-orphan"
+    )
     annotations: Mapped[List["Annotation"]] = relationship(
         "Annotation", 
         back_populates="annotator",

@@ -21,6 +21,7 @@ from app.api.v1 import (
     embodied,
     export,
     modality_workspace,
+    orgs,
     project_labels,
     projects,
     quality,
@@ -76,6 +77,7 @@ def create_application() -> FastAPI:
     app.include_router(users.router, prefix="/api/v1", tags=["用户"])
     app.include_router(roles.router, prefix="/api/v1", tags=["角色"])
     app.include_router(projects.router, prefix="/api/v1")
+    app.include_router(orgs.router, prefix="/api/v1")
     app.include_router(dataset.router, prefix="/api/v1")
     app.include_router(storage.router, prefix="/api/v1")
     app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])

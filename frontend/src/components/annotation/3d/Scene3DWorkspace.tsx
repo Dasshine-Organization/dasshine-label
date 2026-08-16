@@ -68,9 +68,18 @@ const SIDE_VIEWPORTS: OrthoViewportSlot[] = [
 interface Scene3DWorkspaceProps {
   taskId?: string
   pointCloudUrl?: string
+  /** 审核只读：禁止绘制/编辑，仅 orbit */
+  readOnly?: boolean
+  /** 外部注入的 3D 框（审核预览，不写回标注 store） */
+  boxesOverride?: Box3D[]
 }
 
-export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorkspaceProps) {
+export default function Scene3DWorkspace({
+  taskId,
+  pointCloudUrl,
+  readOnly = false,
+  boxesOverride,
+}: Scene3DWorkspaceProps) {
   const mainRef = useRef<HTMLDivElement>(null)
   const orthoRefs = useRef<Record<OrthoView, HTMLDivElement | null>>({ top: null, front: null, side: null })
 
@@ -103,7 +112,9 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
   const drawStartRef = useRef<{ x: number; z: number } | null>(null)
 
   const store = useAnnotationStore()
-  const { boxes3d, activeTool3d, selectedIds3d } = store
+  const { boxes3d: storeBoxes, activeTool3d: storeTool, selectedIds3d } = store
+  const boxes3d = boxesOverride ?? storeBoxes
+  const activeTool3d = readOnly ? 'orbit' : storeTool
 
   const bounds = cloud?.bounds ?? null
   const baseColorsRef = useRef<Float32Array | null>(null)
@@ -487,11 +498,17 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
   }, [bounds, syncAllCameras])
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    const tool = useAnnotationStore.getState().activeTool3d
+    const tool = readOnly ? 'orbit' : useAnnotationStore.getState().activeTool3d
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     interactionRef.current.lastPos = { x: e.clientX, y: e.clientY }
     pointerDidDragRef.current = false
     editDragRef.current = null
+
+    if (readOnly) {
+      if (e.button === 0) interactionRef.current.isDragging = true
+      else if (e.button === 1 || e.button === 2) interactionRef.current.isPanning = true
+      return
+    }
 
     if (tool === 'select' && e.button === 0) {
       const hit = pickAt(e.clientX, e.clientY)
@@ -678,7 +695,7 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
 
         <View3DControls activeView={activeView} onSelect={applyView} />
 
-        {isDrawing3D && (
+        {isDrawing3D && !readOnly && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none">
             <div className="bg-[#00d4ff]/10 border border-[#00d4ff]/30 text-[#00d4ff] text-xs px-3 py-1 rounded">
               拖拽绘制 3D 框 · 松开确认
@@ -698,11 +715,18 @@ export default function Scene3DWorkspace({ taskId, pointCloudUrl }: Scene3DWorks
           sceneName={cloud.sourceLabel?.includes('intersection') ? '城市路口' : undefined}
         />
 
+        {!readOnly && (
         <div className="absolute bottom-3 left-3 text-[10px] text-white/25 space-y-0.5 pointer-events-none">
           <div>选择工具：点击选中框 · 拖拽彩色手柄调尺寸 · 拖拽框体移动</div>
           <div>左键拖拽空白：旋转 · 滚轮：缩放 · Pan / Alt+拖拽：平移</div>
           <div>框内点云按标签颜色高亮，框外压暗</div>
         </div>
+        )}
+        {readOnly && (
+          <div className="absolute bottom-3 left-3 text-[10px] text-white/35 pointer-events-none">
+            审核预览 · 左键旋转 · 滚轮缩放 · {boxes3d.length} 个 3D 框
+          </div>
+        )}
 
         <div className="absolute bottom-3 right-3 flex items-center gap-2 pointer-events-auto">
           <label className="text-[10px] text-white/40">点大小</label>

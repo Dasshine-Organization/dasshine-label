@@ -74,11 +74,29 @@ export const authApi = {
     api.post('/auth/change-password', data),
 }
 
+// 组织（多租户）
+export const orgApi = {
+  list: () =>
+    api.get<{ active_org_id: number | null; items: Array<{ id: number; name: string; slug: string }> }>(
+      '/orgs',
+    ),
+  create: (data: { name: string; slug?: string }) => api.post('/orgs', data),
+  activate: (orgId: number) => api.post(`/orgs/${orgId}/activate`),
+  getMembers: (orgId: number) => api.get(`/orgs/${orgId}/members`),
+  addMember: (orgId: number, data: { user_id: number; role?: string }) =>
+    api.post(`/orgs/${orgId}/members`, data),
+}
+
 // 项目相关 API
 export const projectApi = {
   // 获取项目列表
-  getList: (params?: { skip?: number; limit?: number; status?: string; category?: string }) =>
-    api.get('/projects', { params }),
+  getList: (params?: {
+    skip?: number
+    limit?: number
+    status?: string
+    category?: string
+    org_id?: number
+  }) => api.get('/projects', { params }),
 
   // 获取项目详情
   getById: (id: number) => api.get(`/projects/${id}`),
@@ -109,6 +127,19 @@ export const projectApi = {
   addMember: (projectId: number, userId: number, role: string) =>
     api.post(`/projects/${projectId}/members`, { user_id: userId, role }),
 
+  removeMember: (projectId: number, userId: number) =>
+    api.delete(`/projects/${projectId}/members/${userId}`),
+
+  getMembers: (projectId: number) =>
+    api.get<Array<{
+      user_id: number
+      username: string
+      level: string
+      role: string
+      accuracy_score: number
+      completed_tasks: number
+    }>>(`/projects/${projectId}/members`),
+
   getDispatchLogs: (projectId: number, limit = 10) =>
     api.get<{ project_id: number; total: number; logs: Array<Record<string, unknown>> }>(
       `/projects/${projectId}/dispatch-logs`,
@@ -116,6 +147,21 @@ export const projectApi = {
     ),
 
   getStats: (projectId: number) => api.get(`/projects/${projectId}/stats`),
+
+  getGoldenTasks: (projectId: number) =>
+    api.get<{
+      project_id: number
+      total: number
+      items: Array<{
+        id: number
+        status: string
+        is_golden: boolean
+        has_golden_answer: boolean
+        golden_answer?: Record<string, unknown>
+        data_url?: string
+        filename?: string
+      }>
+    }>(`/projects/${projectId}/golden-tasks`),
 }
 
 // 任务相关 API
@@ -153,6 +199,11 @@ export const taskApi = {
 
   // 获取任务统计
   getStats: (projectId: number) => api.get(`/tasks/stats/${projectId}`),
+
+  /** 标注占用锁 */
+  getLock: (taskId: number) => api.get(`/tasks/${taskId}/lock`),
+  acquireLock: (taskId: number) => api.post(`/tasks/${taskId}/lock`),
+  releaseLock: (taskId: number) => api.delete(`/tasks/${taskId}/lock`),
 
   /** 2D 图像标注草稿（服务端） */
   getAnnotationDraft: (taskId: number) =>
@@ -253,6 +304,22 @@ export const exportApi = {
       responseType: 'blob',
     }),
 
+  startJob: (projectId: number, format: string, status?: string) =>
+    api.post<{ job_id: string; status: string; format: string }>(`/export/${projectId}/jobs`, null, {
+      params: { format, status },
+    }),
+
+  getJob: (jobId: string) =>
+    api.get<{
+      job_id: string
+      state: string
+      status: string
+      ready: boolean
+      download_url?: string
+      error?: string
+      bytes?: number
+    }>(`/export/jobs/${jobId}`),
+
   getStats: (projectId: number) =>
     api.get<{
       project_id: number
@@ -316,10 +383,19 @@ export const qualityApi = {
     ),
 
   // 执行交叉验证
-  crossValidate: (projectId: number, config?: {
-    min_agreement_rate?: number
-    sample_rate?: number
-  }) => api.post('/quality/cross-validate', { project_id: projectId, config }),
+  crossValidate: (taskId: number) =>
+    api.post('/quality/cross-validation', { task_id: taskId }),
+
+  insertGolden: (projectId: number, ratio = 0.1) =>
+    api.post<{ success: boolean; inserted: number; ratio: number }>('/quality/insert-golden', {
+      project_id: projectId,
+      ratio,
+    }),
+
+  updateGoldenAnswer: (taskId: number, data: Record<string, unknown>, source = 'expert') =>
+    api.put(`/quality/tasks/${taskId}/golden-answer`, { data, source, confidence: 1 }),
+
+  getReport: (projectId: number) => api.get(`/quality/report/${projectId}`),
 
   // 获取验证结果
   getValidationResult: (projectId: number) =>

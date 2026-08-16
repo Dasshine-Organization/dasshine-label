@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { message } from 'antd'
 import api, { projectApi } from '../services/api'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
+import ProjectMembersPanel from '../components/project/ProjectMembersPanel'
+import ProjectQualityPanel from '../components/project/ProjectQualityPanel'
 import { getAnnotatePath, getCategoryProjectsPath, resolveTaskMode } from '../utils/annotationRoutes'
 import type { ProjectSummary } from '../types/project'
 import { onProjectTaskStatus } from '../utils/projectTaskStatus'
@@ -17,6 +19,8 @@ type ProjectTaskItem = {
   assignee_name?: string
   category?: string
   ann_type?: string
+  cross_validate_count?: number
+  submit_progress?: { done?: number; need?: number }
 }
 
 type DispatchLog = {
@@ -142,6 +146,8 @@ export default function ProjectTasks() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <ProjectQualityPanel projectId={pid} />
+          <ProjectMembersPanel projectId={pid} />
           <Link
             to={`/review?projectId=${pid}`}
             className="px-3 py-1.5 rounded-lg text-xs border border-[#a78bfa]/30 text-[#a78bfa] hover:bg-[#a78bfa]/10 transition-all"
@@ -195,7 +201,7 @@ export default function ProjectTasks() {
             返回{project?.category ? '该类' : ''}项目管理
           </Link>
         </div>
-      ) : project?.category === 'image_2d' ? (
+      ) : project?.category === 'image_2d' || project?.category === 'ocr' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
           {items.map(task => {
             const st = STATUS_LABEL[task.status] ?? { label: task.status, color: '#9ba0ad' }
@@ -244,12 +250,15 @@ export default function ProjectTasks() {
                 <th className="text-left px-4 py-3">ID</th>
                 <th className="text-left px-4 py-3">文件</th>
                 <th className="text-left px-4 py-3">状态</th>
+                <th className="text-left px-4 py-3">共标</th>
                 <th className="text-right px-4 py-3">操作</th>
               </tr>
             </thead>
             <tbody>
               {items.map(task => {
                 const st = STATUS_LABEL[task.status] ?? { label: task.status, color: '#9ba0ad' }
+                const need = task.submit_progress?.need ?? task.cross_validate_count ?? 1
+                const done = task.submit_progress?.done ?? 0
                 return (
                   <tr key={task.id} className="border-b border-[#1e1e2e]/50 hover:bg-white/[0.02]">
                     <td className="px-4 py-3 font-mono text-white/50">{task.id}</td>
@@ -258,6 +267,9 @@ export default function ProjectTasks() {
                     </td>
                     <td className="px-4 py-3">
                       <span style={{ color: st.color }}>{st.label}</span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-[11px] text-white/40">
+                      {need > 1 ? `${done}/${need}` : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button

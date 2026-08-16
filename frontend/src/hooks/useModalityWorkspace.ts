@@ -3,6 +3,7 @@ import { message } from 'antd'
 import { notifyDraftSaved } from '../utils/draftSaveNotify'
 import useAuthStore from '../store/authStore'
 import { isDemoTaskId } from '../utils/annotationRoutes'
+import { useTaskLock } from './useTaskLock'
 import {
   modalityApi,
   offlineAudioWorkspace,
@@ -13,12 +14,31 @@ import {
   type ModalityWorkspace,
 } from '../services/modalityAnnotation'
 
-type ModalityKind = 'text' | 'audio' | 'video' | 'multimodal'
+type ModalityKind = 'text' | 'audio' | 'video' | 'multimodal' | 'ocr'
 
 function offlineFor(kind: ModalityKind, taskId: string, annType?: string): ModalityWorkspace {
   if (kind === 'audio') return offlineAudioWorkspace(taskId)
   if (kind === 'video') return offlineVideoWorkspace(taskId)
   if (kind === 'multimodal') return offlineMultimodalWorkspace(taskId)
+  if (kind === 'ocr') {
+    return {
+      task_id: Number.parseInt(taskId, 10) || 0,
+      project_id: 0,
+      project_name: 'OCR 标注（离线）',
+      category: 'ocr',
+      ann_type: annType || 'ocr_text',
+      modality: 'ocr',
+      content: {
+        image_url:
+          'https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png',
+      },
+      payload: { schema: 'dasshine.modality.v1', modality: 'ocr', ann_type: 'ocr_text', spans: [] },
+      label_classes: [
+        { id: 'text', name: '文字', color: '#06b6d4' },
+        { id: 'title', name: '标题', color: '#f97316' },
+      ],
+    }
+  }
   return offlineTextWorkspace(taskId, annType)
 }
 
@@ -71,6 +91,10 @@ export function useModalityWorkspace(
   const [dirty, setDirty] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startRef = useRef(Date.now())
+  const { lock, blocked: lockBlocked } = useTaskLock(
+    taskId,
+    Boolean(token && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)),
+  )
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -140,6 +164,10 @@ export function useModalityWorkspace(
 
   const updatePayload = useCallback(
     (patch: Partial<ModalityPayload> | ((p: ModalityPayload) => ModalityPayload)) => {
+      if (lockBlocked) {
+        message.warning('任务已被他人占用，暂不可编辑')
+        return
+      }
       setPayload(prev => {
         if (!prev) return prev
         const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }
@@ -149,11 +177,15 @@ export function useModalityWorkspace(
         return next
       })
     },
-    [persist],
+    [persist, lockBlocked],
   )
 
   const submit = useCallback(async () => {
     if (!payload) return
+    if (lockBlocked) {
+      message.warning('任务已被他人占用，暂不可提交')
+      return
+    }
     writeLocalDraft(kind, taskId, payload)
     if (useBackend && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)) {
       const workTime = Math.round((Date.now() - startRef.current) / 1000)
@@ -162,7 +194,7 @@ export function useModalityWorkspace(
     } else {
       message.info('离线模式：草稿已保存在本地，登录后可提交到服务器')
     }
-  }, [payload, taskId, useBackend, kind])
+  }, [payload, taskId, useBackend, kind, lockBlocked])
 
   return {
     ws,
@@ -177,5 +209,7 @@ export function useModalityWorkspace(
     persist,
     submit,
     reload: load,
+    lock,
+    lockBlocked,
   }
 }

@@ -7,6 +7,8 @@ import {
   useInvalidateReviewQueue,
   useReviewQueueQuery,
 } from '../hooks/queries/useReviewQueue'
+import Scene3DWorkspace from '../components/annotation/3d/Scene3DWorkspace'
+import type { Box3D } from '../store/annotationStore'
 
 type ReviewDetail = {
   id: number
@@ -48,6 +50,28 @@ type ReviewDetail = {
     }
     total_frames?: number
   } | null
+  modality_preview?: {
+    modality?: string
+    spans?: Array<{ id?: string; text?: string; label?: string; start?: number; end?: number }>
+    transcript?: string
+    speakers?: string[]
+    segments?: unknown[]
+    caption?: string
+    clips?: Array<{ start?: number; end?: number; label?: string }>
+    summary?: string
+    translation?: string
+    sentiment?: string | null
+    classification_labels?: string[]
+    qa_pairs?: Array<{ question?: string; answer?: string }>
+    vqa?: { question?: string; answer?: string }
+    span_count?: number
+    frame_notes?: Record<string, string>
+  } | null
+  pointcloud_preview?: {
+    point_cloud_url?: string
+    boxes3d?: Array<Record<string, unknown>>
+    box_count?: number
+  } | null
   last_reject_feedback?: string
 }
 
@@ -76,6 +100,37 @@ function boxStyle(ann: ReviewDetail['annotations2d'][0], imgW: number, imgH: num
     height: `${(h / imgH) * 100}%`,
     borderColor: ann.color || '#a78bfa',
   }
+}
+
+function asReviewBoxes3d(raw: unknown): Box3D[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
+    .map((b, i) => {
+      const center = (b.center as { x?: number; y?: number; z?: number }) || {}
+      const size = (b.size as { x?: number; y?: number; z?: number }) || {}
+      const rotation = (b.rotation as { x?: number; y?: number; z?: number }) || {}
+      return {
+        id: String(b.id || `rev3d_${i}`),
+        label: String(b.label || 'object'),
+        color: String(b.color || '#a78bfa'),
+        center: { x: Number(center.x) || 0, y: Number(center.y) || 0, z: Number(center.z) || 0 },
+        size: {
+          x: Number(size.x) || 1,
+          y: Number(size.y) || 1,
+          z: Number(size.z) || 1,
+        },
+        rotation: {
+          x: Number(rotation.x) || 0,
+          y: Number(rotation.y) || 0,
+          z: Number(rotation.z) || 0,
+        },
+        visible: b.visible !== false,
+        locked: true,
+        score: typeof b.score === 'number' ? b.score : undefined,
+        isAI: Boolean(b.isAI),
+      }
+    })
 }
 
 export default function ReviewQueue() {
@@ -326,6 +381,72 @@ export default function ReviewQueue() {
                       </div>
                     )}
                   </div>
+                ) : detail.pointcloud_preview ? (
+                  <div className="w-full h-full min-h-[320px]">
+                    <Scene3DWorkspace
+                      taskId={String(detail.id)}
+                      pointCloudUrl={
+                        detail.pointcloud_preview.point_cloud_url || detail.data_url
+                      }
+                      readOnly
+                      boxesOverride={asReviewBoxes3d(detail.pointcloud_preview.boxes3d)}
+                    />
+                  </div>
+                ) : detail.modality_preview && !detail.data_url ? (
+                  <div className="w-full h-full p-4 overflow-y-auto text-xs text-white/70 space-y-2">
+                    <div className="text-white/35 uppercase tracking-wider text-[10px]">
+                      {detail.modality_preview.modality || 'modality'} 预览
+                    </div>
+                    {detail.modality_preview.transcript && (
+                      <div>
+                        <span className="text-white/35">转写：</span>
+                        {detail.modality_preview.transcript}
+                      </div>
+                    )}
+                    {detail.modality_preview.caption && (
+                      <div>
+                        <span className="text-white/35">描述：</span>
+                        {detail.modality_preview.caption}
+                      </div>
+                    )}
+                    {detail.modality_preview.summary && (
+                      <div>
+                        <span className="text-white/35">摘要：</span>
+                        {detail.modality_preview.summary}
+                      </div>
+                    )}
+                    {detail.modality_preview.sentiment && (
+                      <div>
+                        <span className="text-white/35">情感：</span>
+                        {detail.modality_preview.sentiment}
+                      </div>
+                    )}
+                    {(detail.modality_preview.spans || []).length > 0 && (
+                      <div className="font-mono space-y-0.5 text-white/50">
+                        {(detail.modality_preview.spans || []).slice(0, 20).map((s, i) => (
+                          <div key={s.id ?? i}>
+                            [{s.label || 'span'}] {s.text || `${s.start}-${s.end}`}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(detail.modality_preview.clips || []).length > 0 && (
+                      <div className="font-mono space-y-0.5 text-white/50">
+                        {(detail.modality_preview.clips || []).slice(0, 12).map((c, i) => (
+                          <div key={i}>
+                            [{c.start}–{c.end}] {c.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {detail.modality_preview.vqa?.question && (
+                      <div>
+                        Q: {detail.modality_preview.vqa.question}
+                        <br />
+                        A: {detail.modality_preview.vqa.answer}
+                      </div>
+                    )}
+                  </div>
                 ) : detail.data_url ? (
                   <div className="relative max-w-full max-h-[52vh]">
                     <img
@@ -348,10 +469,15 @@ export default function ReviewQueue() {
                             key={ann.id ?? i}
                             className="absolute border-2 pointer-events-none"
                             style={st}
-                            title={ann.label}
+                            title={ann.label || (ann as { text?: string }).text}
                           />
                         )
                       })}
+                    {detail.modality_preview?.modality === 'ocr' && (
+                      <div className="absolute bottom-2 left-2 right-2 text-[10px] text-white/70 bg-black/55 rounded px-2 py-1 max-h-16 overflow-y-auto">
+                        OCR {(detail.modality_preview.span_count ?? detail.modality_preview.spans?.length) || 0} 条
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-xs text-white/30 p-8 text-center">

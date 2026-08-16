@@ -10,6 +10,8 @@ import AnnotationToolbar from '../components/annotation/AnnotationToolbar'
 import Canvas2D from '../components/annotation/2d/Canvas2D'
 import RightPanel from '../components/annotation/RightPanel'
 import ExportPanel from '../components/annotation/ExportPanel'
+import TaskLockBanner from '../components/TaskLockBanner'
+import { useTaskLock } from '../hooks/useTaskLock'
 import useAuthStore from '../store/authStore'
 import {
   canAddOrEditLabelClasses,
@@ -138,6 +140,8 @@ export default function ImageAnnotation() {
     Number.isFinite(numericTaskId) &&
     numericTaskId > 0 &&
     !isDemoTaskId(taskId)
+
+  const { lock, blocked: lockBlocked } = useTaskLock(taskId, useBackendTask)
 
   const [models, setModels] = useState<PrelabelModelInfo[]>(FALLBACK_MODELS)
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -526,6 +530,7 @@ export default function ImageAnnotation() {
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden select-none">
+      <TaskLockBanner lock={lock} blocked={lockBlocked} />
       <AnnotationTopBar
         taskName={
           taskImageName

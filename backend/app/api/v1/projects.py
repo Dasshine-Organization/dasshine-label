@@ -20,7 +20,7 @@ from app.schemas.project_schemas import (
     ProjectCreate,
     ProjectUpdate,
 )
-from app.services.project_acl import can_administrate_project
+from app.services.project_acl import can_administrate_project, can_review_project
 from app.services.project_service import (
     ProjectService,
     _get_schema,
@@ -47,7 +47,9 @@ def _to_summary(p: Project, db: Session) -> dict:
         "total_items": p.total_items or 0,
         "approved_items": p.approved_items or 0,
         "price_per_task": schema.get("price_per_task", 0.1),
+        "cross_validate_count": schema.get("cross_validate_count", 1),
         "member_count": member_count,
+        "organization_id": getattr(p, "organization_id", None),
         "created_at": p.created_at,
     }
 
@@ -73,6 +75,7 @@ def _to_out(p: Project) -> dict:
         "total_items": p.total_items or 0,
         "labeled_items": p.labeled_items or 0,
         "approved_items": p.approved_items or 0,
+        "organization_id": getattr(p, "organization_id", None),
         "created_at": p.created_at,
     }
 
@@ -183,13 +186,31 @@ def list_projects(
     limit: int = Query(50, le=200),
     status: Optional[str] = None,
     category: Optional[str] = None,
+    org_id: Optional[int] = Query(None, description="按组织过滤；默认当前 active_org"),
     my_projects: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from app.services.organization_service import OrganizationService
+
+    org_svc = OrganizationService(db)
+    effective_org = org_id
+    if effective_org is None:
+        org_svc.ensure_personal_org(current_user)
+        if current_user.is_admin:
+            # 超管：有当前组织则按组织筛；无则看全部
+            effective_org = current_user.active_org_id
+        else:
+            effective_org = current_user.active_org_id
+
     user_id = current_user.id if (my_projects or not current_user.is_admin) else None
     projects = ProjectService(db).list_all(
-        skip=skip, limit=limit, status=status, category=category, user_id=user_id
+        skip=skip,
+        limit=limit,
+        status=status,
+        category=category,
+        user_id=user_id,
+        org_id=effective_org,
     )
     return [_to_summary(p, db) for p in projects]
 
@@ -381,6 +402,74 @@ def get_project_stats(
         return ProjectService(db).get_stats(project_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/{project_id}/golden-tasks")
+def list_golden_tasks(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """黄金题列表；答案仅审核/管理可见。"""
+    from app.services.golden_blind import can_see_golden
+    from app.services.project_acl import can_administrate_project, get_project_member
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    is_member = get_project_member(db, project_id, current_user.id) is not None
+    if not (
+        current_user.is_admin
+        or can_administrate_project(db, project, current_user)
+        or can_review_project(db, project, current_user)
+        or is_member
+    ):
+        raise HTTPException(status_code=403, detail="无权查看")
+
+    show_answer = can_review_project(db, project, current_user) or current_user.is_admin
+    rows = (
+        db.query(Task)
+        .filter(Task.project_id == project_id, Task.is_golden.is_(True))
+        .order_by(Task.id.desc())
+        .limit(200)
+        .all()
+    )
+    items = []
+    for t in rows:
+        ans = t.golden_answer if isinstance(t.golden_answer, dict) else None
+        has_ans = bool(ans and (ans.get("data") or ans))
+        row = {
+            "id": t.id,
+            "status": t.status.value if hasattr(t.status, "value") else str(t.status),
+            "is_golden": True,
+            "has_golden_answer": has_ans,
+            "data_url": t.data_url,
+            "filename": (t.data or {}).get("filename") or (t.data or {}).get("file_name"),
+        }
+        if show_answer:
+            row["golden_answer"] = ans
+        items.append(row)
+    return {"project_id": project_id, "total": len(items), "items": items}
+
+
+@router.get("/{project_id}/members")
+def list_members(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    # 项目成员或可管理者可查看
+    member = (
+        db.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == current_user.id)
+        .first()
+    )
+    if not member and not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权查看成员")
+    return ProjectService(db).get_members(project_id)
 
 
 @router.post("/{project_id}/members")

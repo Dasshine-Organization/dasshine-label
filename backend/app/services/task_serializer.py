@@ -11,6 +11,14 @@ def task_list_item(task: Task, schema: Optional[dict] = None) -> Dict[str, Any]:
     schema = schema or {}
     assignee_name = task.assignee.username if task.assignee else None
     data = task.data or {}
+    meta = task.task_metadata if isinstance(task.task_metadata, dict) else {}
+    try:
+        need = int(meta.get("cross_validate_count") or 1)
+    except (TypeError, ValueError):
+        need = 1
+    submitted = meta.get("submitted_annotator_ids")
+    if not isinstance(submitted, list):
+        submitted = []
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -22,6 +30,13 @@ def task_list_item(task: Task, schema: Optional[dict] = None) -> Dict[str, Any]:
         "priority": task.priority,
         "assignee_id": task.assignee_id,
         "assignee_name": assignee_name,
+        "assignee_ids": meta.get("assignee_ids") or ([task.assignee_id] if task.assignee_id else []),
+        "co_assignee_ids": meta.get("co_assignee_ids") or [],
+        "cross_validate_count": max(1, min(need, 5)),
+        "submit_progress": {
+            "done": len(submitted),
+            "need": max(1, min(need, 5)),
+        },
         "data_url": task.data_url,
         "filename": data.get("filename") or data.get("file_name"),
         "pre_label_confidence": task.pre_label_confidence,

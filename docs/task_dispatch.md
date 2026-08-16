@@ -1,5 +1,10 @@
 # Dasshine Label 任务分发算法文档
 
+> **P6 真源：** 产品分发与 claim 统一走 `ProjectService.dispatch` / `_assign_task_multi`
+> （写 `TaskAssignment` + `task_metadata.assignee_ids` / `co_assignee_ids`，消费 `cross_validate_count`）。
+> `POST /api/v1/tasks/dispatch` 与 `TaskDispatchService.dispatch_tasks` 已委托该路径。
+> UI：`POST /projects/{id}/dispatch`。详见 `docs/p6_production_loop.md`。
+
 ## 概述
 
 Dasshine Label 的任务分发系统采用**智能匹配算法**，基于多维度评分选择最优标注员，实现高效、公平的任务分配。

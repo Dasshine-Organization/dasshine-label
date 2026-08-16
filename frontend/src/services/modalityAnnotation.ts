@@ -16,11 +16,18 @@ export type VideoClip = {
   note?: string
 }
 
+export type OcrSpan = {
+  id: string
+  text: string
+  label?: string
+  bbox: number[] // xywh
+}
+
 export type ModalityPayload = {
   schema?: string
   modality: string
   ann_type: string
-  spans?: TextSpan[]
+  spans?: Array<TextSpan | OcrSpan>
   classification_labels?: string[]
   sentiment?: string | null
   qa_pairs?: { question: string; answer: string }[]
@@ -41,7 +48,7 @@ export type ModalityWorkspace = {
   project_name: string
   category?: string
   ann_type: string
-  modality: 'text' | 'audio' | 'video' | 'multimodal'
+  modality: 'text' | 'audio' | 'video' | 'multimodal' | 'ocr'
   content: {
     text?: string
     title?: string

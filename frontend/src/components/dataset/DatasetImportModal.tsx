@@ -42,7 +42,7 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     label: '文本粘贴',
     desc: '直接粘贴文本内容，每行一条',
     color: '#ec4899',
-    forCategories: ['nlp', 'audio', 'ocr'],
+    forCategories: ['nlp', 'audio'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M2 4h12M2 7h8M2 10h10M2 13h6" strokeLinecap="round"/></svg>,
   },
   {
@@ -50,7 +50,7 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     label: '本地图片',
     desc: '拖入文件夹或多张图片（jpg/png/webp 等）',
     color: '#22d3ee',
-    forCategories: ['image_2d'],
+    forCategories: ['image_2d', 'ocr'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><rect x="2" y="3" width="12" height="10" rx="1"/><circle cx="5.5" cy="7" r="1.2"/><path d="M2 11l3.5-3.5 2.5 2.5L11 7l3 4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   },
   {
@@ -65,7 +65,7 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     label: 'COCO JSON',
     desc: '导入 MS COCO 格式标注数据集',
     color: '#10b981',
-    forCategories: ['image_2d'],
+    forCategories: ['image_2d', 'ocr'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>,
   },
   {
@@ -349,7 +349,7 @@ function ResultBanner({ result }: { result: ImportResult }) {
 
 export default function DatasetImportModal({ projectId, projectName, category, onClose, onImported }: Props) {
   const [method, setMethod] = useState<ImportMethod>(
-    category === 'image_2d' ? 'local_files' : 'url',
+    category === 'image_2d' || category === 'ocr' ? 'local_files' : 'url',
   )
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)

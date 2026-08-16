@@ -365,12 +365,19 @@ def submit_embodied(
     task = _require_task(db, task_ref, current_user)
     ws = get_or_create_workspace(db, task, current_user)
     ann = submit_annotation(db, task, current_user, ws, body.work_time)
+    db.refresh(task)
+    from app.services.project_acl import cross_submit_progress
+
+    progress = cross_submit_progress(task)
+    status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
+    fully = status_val == "submitted"
     return {
-        "message": "已提交具身标注",
+        "message": "已提交具身标注" if fully else f"已提交（交叉 {progress['done']}/{progress['need']}）",
         "annotation_id": ann.id,
         "task_id": task.id,
         "task_ref": get_task_ref(task),
-        "task_status": task.status.value if hasattr(task.status, "value") else task.status,
+        "task_status": status_val,
+        "submit_progress": {"done": progress["done"], "need": progress["need"]},
     }
 
 

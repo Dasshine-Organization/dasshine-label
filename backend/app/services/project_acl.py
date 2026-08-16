@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,50 @@ def is_project_owner_user(project: Project, member: Optional[ProjectMember], use
     return False
 
 
+def _meta_assignee_ids(task: Task) -> List[int]:
+    meta = task.task_metadata if isinstance(task.task_metadata, dict) else {}
+    ids: List[int] = []
+    for key in ("assignee_ids", "co_assignee_ids"):
+        raw = meta.get(key)
+        if not isinstance(raw, list):
+            continue
+        for x in raw:
+            try:
+                uid = int(x)
+            except (TypeError, ValueError):
+                continue
+            if uid not in ids:
+                ids.append(uid)
+    if task.assignee_id is not None and task.assignee_id not in ids:
+        ids.insert(0, task.assignee_id)
+    return ids
+
+
+def is_task_assignee(task: Task, user: User) -> bool:
+    """主受让人或交叉共标人。"""
+    if task.assignee_id == user.id:
+        return True
+    return user.id in _meta_assignee_ids(task)
+
+
+def cross_submit_progress(task: Task) -> dict[str, Any]:
+    meta = task.task_metadata if isinstance(task.task_metadata, dict) else {}
+    try:
+        need = int(meta.get("cross_validate_count") or 1)
+    except (TypeError, ValueError):
+        need = 1
+    need = max(1, min(need, 5))
+    submitted = meta.get("submitted_annotator_ids")
+    if not isinstance(submitted, list):
+        submitted = []
+    return {
+        "need": need,
+        "done": len(submitted),
+        "submitted_annotator_ids": submitted,
+        "assignee_ids": _meta_assignee_ids(task),
+    }
+
+
 def can_access_task_workspace(db: Session, task: Task, user: User) -> bool:
     """可读写任务工作台草稿：超管/平台管理员、项目负责人、成员、或受让人"""
     if user.role in (UserRole.SUPER_ADMIN, UserRole.ADMIN):
@@ -38,9 +82,7 @@ def can_access_task_workspace(db: Session, task: Task, user: User) -> bool:
     m = get_project_member(db, project.id, user.id)
     if m:
         return True
-    if task.assignee_id == user.id:
-        return True
-    return False
+    return is_task_assignee(task, user)
 
 
 def can_edit_project_label_classes(db: Session, project: Project, user: User) -> bool:
@@ -76,10 +118,12 @@ def can_administrate_project(db: Session, project: Project, user: User) -> bool:
 
 
 def can_review_project(db: Session, project: Project, user: User) -> bool:
-    """审核任务：平台管理员，或项目 owner/manager/reviewer"""
+    """审核任务：平台管理员；平台审核员（须为项目成员）；或项目 owner/manager/reviewer"""
     if user.role in (UserRole.SUPER_ADMIN, UserRole.ADMIN):
         return True
     m = get_project_member(db, project.id, user.id)
     if not m:
         return False
+    if user.role == UserRole.REVIEWER:
+        return True
     return m.role in ("owner", "manager", "reviewer")

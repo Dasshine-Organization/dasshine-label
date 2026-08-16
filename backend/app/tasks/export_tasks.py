@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=2)
-def export_project_data(self, project_id: int, format: str, user_id: int):
+def export_project_data(self, project_id: int, format: str, user_id: int, status: str = "approved"):
     """异步导出项目数据到 UPLOAD_DIR/exports。"""
     db = SessionLocal()
     try:
@@ -32,13 +32,20 @@ def export_project_data(self, project_id: int, format: str, user_id: int):
 
         category = _resolve_project_category(project)
         fmt = (format or default_format_for(category)).strip().lower()
-        tasks = (
+        query = (
             db.query(Task)
             .options(joinedload(Task.annotations))
-            .filter(Task.project_id == project_id, Task.status == TaskStatus.APPROVED)
-            .order_by(Task.id.asc())
-            .all()
+            .filter(Task.project_id == project_id)
         )
+        if status and status != "all":
+            try:
+                st = TaskStatus(status)
+            except ValueError as e:
+                raise ValueError(f"无效状态: {status}") from e
+            query = query.filter(Task.status == st)
+        else:
+            query = query.filter(Task.status == TaskStatus.APPROVED)
+        tasks = query.order_by(Task.id.asc()).all()
         if not tasks:
             raise ValueError("没有可导出的数据")
 
@@ -78,6 +85,9 @@ def export_project_data(self, project_id: int, format: str, user_id: int):
         }
     except Exception as exc:
         logger.error("导出失败: %s", exc)
+        # Don't retry ValueError (no data / bad status)
+        if isinstance(exc, ValueError):
+            raise
         raise self.retry(exc=exc, countdown=60) from exc
     finally:
         db.close()

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { message } from 'antd'
-import api from '../../services/api'
+import api, { projectApi, userApi, type UserRecord } from '../../services/api'
 import { ProjectSummary, DispatchStrategy } from '../../types/project'
 
 interface Props {
@@ -9,10 +9,19 @@ interface Props {
   onDispatched: () => void
 }
 
+type MemberRow = {
+  user_id: number
+  username: string
+  role: string
+  level?: string
+}
+
 export default function DispatchModal({ project, onClose, onDispatched }: Props) {
   const [strategy, setStrategy] = useState<DispatchStrategy>('smart')
   const [batchSize, setBatchSize] = useState(100)
   const [loading, setLoading] = useState(false)
+  const [members, setMembers] = useState<MemberRow[]>([])
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([])
   const [result, setResult] = useState<{
     assigned_count?: number
     failed_count?: number
@@ -27,6 +36,8 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
     - (project.completed_tasks ?? 0)
     - (project.approved_tasks ?? project.approved_items ?? 0)
 
+  const crossN = Math.max(1, Number(project.cross_validate_count ?? 1))
+
   const STRATEGIES = [
     { id: 'smart',       label: '智能分派', desc: '综合评分自动选最优标注员', color: '#00d4ff' },
     { id: 'round_robin', label: '轮询',     desc: '顺序循环均匀分配',         color: '#10b981' },
@@ -34,18 +45,59 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
     { id: 'manual',      label: '手动',     desc: '指定成员列表',             color: '#a78bfa' },
   ]
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { data } = await projectApi.getMembers(project.id)
+        if (!cancelled) setMembers((data as MemberRow[]) ?? [])
+      } catch {
+        // 无成员接口时回退用户列表（管理员）
+        try {
+          const { data } = await userApi.getList({ limit: 50 })
+          if (!cancelled) {
+            setMembers(
+              (data as UserRecord[]).map(u => ({
+                user_id: u.id,
+                username: u.username,
+                role: u.role,
+                level: u.level,
+              })),
+            )
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [project.id])
+
+  function toggleUser(uid: number) {
+    setSelectedUserIds(prev =>
+      prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid],
+    )
+  }
+
   async function handleDispatch() {
+    if (strategy === 'manual' && selectedUserIds.length === 0) {
+      message.warning('请至少选择一名标注员')
+      return
+    }
     setLoading(true)
     try {
       const { data } = await api.post(`/projects/${project.id}/dispatch`, {
         project_id: project.id,
         batch_size: batchSize,
         strategy,
+        target_user_ids: strategy === 'manual' ? selectedUserIds : undefined,
       })
       setResult(data)
       onDispatched()
       if (data.assigned_count > 0) {
-        message.success({ content: `成功分派 ${data.assigned_count} 个任务`, duration: 3 })
+        message.success({ content: data.message || `成功分派 ${data.assigned_count} 个任务`, duration: 3 })
       }
     } catch (e: any) {
       message.error({ content: e?.response?.data?.detail ?? '分派失败', duration: 3 })
@@ -64,7 +116,6 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
       <div className="w-full max-w-md bg-[#12121a] border border-[#1e1e2e] rounded-2xl overflow-hidden"
         style={{ boxShadow: `0 0 40px ${color}12` }}>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e1e2e]">
           <div>
             <div className="text-sm font-medium text-white/80">任务分派</div>
@@ -78,12 +129,11 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
         </div>
 
         <div className="p-5 space-y-5">
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: '待分派', value: Math.max(0, pendingTasks), color: '#f59e0b' },
-              { label: '总任务', value: project.total_tasks,       color: '#9ba0ad' },
-              { label: '已完成', value: project.approved_tasks,    color: '#10b981' },
+              { label: '交叉人数', value: crossN, color: '#a78bfa' },
+              { label: '已完成', value: project.approved_tasks ?? project.approved_items ?? 0, color: '#10b981' },
             ].map(s => (
               <div key={s.label} className="bg-[#0a0a0f] border border-[#1e1e2e] rounded-xl p-3 text-center">
                 <div className="text-[10px] text-white/30 mb-1">{s.label}</div>
@@ -92,7 +142,6 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
             ))}
           </div>
 
-          {/* Strategy */}
           <div>
             <div className="text-xs text-white/40 mb-2.5 uppercase tracking-widest">分派策略</div>
             <div className="grid grid-cols-2 gap-2">
@@ -120,7 +169,33 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
             </div>
           </div>
 
-          {/* Batch size */}
+          {strategy === 'manual' && (
+            <div>
+              <div className="text-xs text-white/40 mb-2 uppercase tracking-widest">指定标注员</div>
+              <div className="max-h-36 overflow-y-auto space-y-1 rounded-xl border border-[#1e1e2e] p-2">
+                {members.length === 0 ? (
+                  <div className="text-[11px] text-white/30 px-2 py-3">暂无成员，请先在项目中添加</div>
+                ) : (
+                  members.map(m => {
+                    const on = selectedUserIds.includes(m.user_id)
+                    return (
+                      <button
+                        key={m.user_id}
+                        type="button"
+                        onClick={() => toggleUser(m.user_id)}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-all
+                          ${on ? 'bg-[#a78bfa]/15 text-[#a78bfa]' : 'text-white/50 hover:bg-white/[0.04]'}`}
+                      >
+                        <span>{m.username}</span>
+                        <span className="text-[10px] opacity-60">{m.role}</span>
+                      </button>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs text-white/40 uppercase tracking-widest">本批次数量</div>
@@ -138,7 +213,6 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
             </div>
           </div>
 
-          {/* Result */}
           {result && (
             <div className={`rounded-xl p-3 border text-xs space-y-1
               ${result.assigned_count && result.assigned_count > 0
@@ -165,7 +239,6 @@ export default function DispatchModal({ project, onClose, onDispatched }: Props)
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex gap-3 px-5 pb-5">
           <button
             onClick={onClose}

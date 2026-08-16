@@ -14,6 +14,7 @@ export interface AuthUser {
   total_completed: number
   total_earnings: number
   active_tasks: number
+  active_org_id?: number | null
 }
 
 interface AuthState {
@@ -43,6 +44,7 @@ function normalizeAuthUser(
     total_completed: u.total_completed ?? 0,
     total_earnings: u.total_earnings ?? 0,
     active_tasks: u.active_tasks ?? 0,
+    active_org_id: u.active_org_id ?? null,
   }
 }
 

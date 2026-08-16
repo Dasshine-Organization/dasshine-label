@@ -15,6 +15,7 @@ export type AnnotationWorkspaceMode =
   | '3d'
   | 'embodied'
   | 'text'
+  | 'ocr'
   | 'audio'
   | 'video'
   | 'multimodal'
@@ -48,7 +49,8 @@ export const DEMO_TASK_ROUTES: Record<
   '3003': { mode: 'video', label: '视频 · 动作片段', category: 'video' },
 }
 
-const TEXT_CATEGORIES = new Set(['nlp', 'ocr'])
+const TEXT_CATEGORIES = new Set(['nlp'])
+const OCR_CATEGORIES = new Set(['ocr'])
 const AUDIO_CATEGORIES = new Set(['audio'])
 const VIDEO_CATEGORIES = new Set(['video'])
 const MULTIMODAL_CATEGORIES = new Set(['multimodal'])
@@ -70,6 +72,7 @@ export function resolveTaskMode(task: {
 
   if (cat === 'embodied' || task.category === 'embodied') return 'embodied'
   if (cat === 'pointcloud_3d') return '3d'
+  if (OCR_CATEGORIES.has(cat ?? '') || ann?.startsWith('ocr_')) return 'ocr'
   if (TEXT_CATEGORIES.has(cat ?? '') || ann === 'ner' || ann === 'sentiment') return 'text'
   if (AUDIO_CATEGORIES.has(cat ?? '') || ann === 'asr' || ann === 'speaker_diarize') return 'audio'
   if (VIDEO_CATEGORIES.has(cat ?? '') || ann?.startsWith('video_')) return 'video'
@@ -79,6 +82,7 @@ export function resolveTaskMode(task: {
   if (task.project && /具身|机器人|lerobot|aloha|insight/i.test(task.project)) return 'embodied'
   if (task.type && /3\s*d|点云|lidar/i.test(task.type)) return '3d'
   if (task.project && /点云|3d|lidar/i.test(task.project)) return '3d'
+  if (task.type && /ocr|文字识别|版面/i.test(task.type)) return 'ocr'
   if (task.type && /语料|文本|ner|nlp|翻译|摘要/i.test(task.type)) return 'text'
   if (task.type && /语音|音频|asr|转写/i.test(task.type)) return 'audio'
   if (task.type && /视频|video/i.test(task.type)) return 'video'
@@ -94,6 +98,8 @@ export function getAnnotatePath(taskId: string | number, mode?: AnnotationWorksp
       return `/annotate-embodied/${id}`
     case '3d':
       return `/annotate-3d/${id}`
+    case 'ocr':
+      return `/annotate-ocr/${id}`
     case 'text':
       return `/annotate-text/${id}`
     case 'audio':

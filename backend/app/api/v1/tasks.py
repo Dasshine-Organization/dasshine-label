@@ -13,7 +13,9 @@ from app.models.user import User
 from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.project import Project
 from app.services.task_dispatch import TaskDispatchService, get_dispatch_service
+from app.services.project_acl import is_task_assignee
 from app.core.exceptions import raise_not_found, raise_bad_request
+from sqlalchemy import or_, text
 
 router = APIRouter()
 
@@ -101,11 +103,18 @@ def list_tasks(
         joinedload(Task.assignee),
     )
 
-    # 非管理员：自己的任务 + 可领取的待分派任务
+    # 非管理员：自己的任务（含交叉共标）+ 可领取的待分派任务
     if not current_user.is_admin:
+        uid = current_user.id
         query = query.filter(
             or_(
-                Task.assignee_id == current_user.id,
+                Task.assignee_id == uid,
+                text(
+                    "(tasks.metadata->'assignee_ids') @> to_jsonb(:uid::int)"
+                ).bindparams(uid=uid),
+                text(
+                    "(tasks.metadata->'co_assignee_ids') @> to_jsonb(:cuid::int)"
+                ).bindparams(cuid=uid),
                 (Task.status == TaskStatus.PENDING) & (Task.assignee_id.is_(None)),
             )
         )
@@ -185,8 +194,15 @@ def get_task(
     schema = _get_schema(task.project) if task.project else {}
     item = _task_list_item(task, schema)
     item["data"] = task.data or {}
-    item["task_metadata"] = task.task_metadata or {}
+    meta = dict(task.task_metadata or {})
+    # Blind: never expose golden_scores / answers to non-reviewers
+    from app.services.golden_blind import can_see_golden, maybe_attach_golden_fields
+
+    if not can_see_golden(db, task, current_user):
+        meta.pop("golden_scores", None)
+    item["task_metadata"] = meta
     item["pre_label_result"] = task.pre_label_result
+    item = maybe_attach_golden_fields(db, task, current_user, item)
     return item
 
 
@@ -255,20 +271,20 @@ def start_task(
     if not task:
         raise_not_found("任务不存在")
     
-    # 检查权限
-    if task.assignee_id != current_user.id:
+    if not is_task_assignee(task, current_user) and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权操作此任务"
         )
     
-    if task.status != TaskStatus.ASSIGNED:
+    if task.status not in (TaskStatus.ASSIGNED, TaskStatus.ANNOTATING):
         raise_bad_request("任务状态不正确")
     
     from datetime import datetime
-    task.status = TaskStatus.ANNOTATING
-    task.started_at = datetime.utcnow()
-    db.commit()
+    if task.status == TaskStatus.ASSIGNED:
+        task.status = TaskStatus.ANNOTATING
+        task.started_at = datetime.utcnow()
+        db.commit()
     
     return {"success": True, "message": "任务开始", "started_at": task.started_at}
 
@@ -280,12 +296,17 @@ def submit_task(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """提交标注结果"""
+    """提交标注结果（交叉共标：满 N 人后才 SUBMITTED）"""
+    import uuid
+    from datetime import datetime, timezone
+    from app.models.annotation import Annotation, AnnotationStatus, AnnotationType
+    from app.services.task_completion import after_annotation_submit
+
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise_not_found("任务不存在")
     
-    if task.assignee_id != current_user.id:
+    if not is_task_assignee(task, current_user) and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权操作此任务"
@@ -294,35 +315,46 @@ def submit_task(
     if task.status not in [TaskStatus.ANNOTATING, TaskStatus.ASSIGNED]:
         raise_bad_request("任务状态不正确")
     
-    # 创建标注记录
-    from app.models.task import Annotation
-    from datetime import datetime
-    
-    annotation = Annotation(
-        task_id=task_id,
-        annotator_id=current_user.id,
-        result=request.result,
-        started_at=task.started_at or task.assigned_at,
-        completed_at=datetime.utcnow(),
-        work_time=request.work_time,
-        is_final=True
+    existing = (
+        db.query(Annotation)
+        .filter(
+            Annotation.task_id == task_id,
+            Annotation.annotator_id == current_user.id,
+            Annotation.is_latest.is_(True),
+        )
+        .first()
     )
-    db.add(annotation)
-    
-    # 更新任务状态
-    task.status = TaskStatus.SUBMITTED
-    task.submitted_at = datetime.utcnow()
-    task.work_time = request.work_time
-    
-    # 更新用户统计
-    current_user.completed_tasks += 1
-    
+    if existing:
+        existing.data = request.result
+        existing.work_time = request.work_time
+        existing.version += 1
+        annotation = existing
+    else:
+        annotation = Annotation(
+            id=str(uuid.uuid4()),
+            task_id=task_id,
+            data_id=str(task_id),
+            annotation_type=AnnotationType.TEXT,
+            data=request.result,
+            status=AnnotationStatus.COMPLETED,
+            annotator_id=current_user.id,
+            work_time=request.work_time,
+            is_latest=True,
+        )
+        db.add(annotation)
+
+    progress = after_annotation_submit(
+        db, task, current_user.id, request.result, work_time=request.work_time
+    )
+    current_user.completed_tasks = (current_user.completed_tasks or 0) + 1
     db.commit()
     
     return {
         "success": True,
-        "message": "提交成功",
-        "annotation_id": annotation.id
+        "message": "提交成功" if progress["fully_submitted"] else f"已提交（{progress['done']}/{progress['need']}）",
+        "annotation_id": annotation.id,
+        "task_status": progress["task_status"],
+        "submit_progress": {"done": progress["done"], "need": progress["need"]},
     }
 
 
@@ -333,22 +365,25 @@ def dispatch_tasks(
     db: Session = Depends(get_db)
 ):
     """
-    触发任务分发（管理员）
-    
-    批量分配待处理任务给标注员
+    触发任务分发（管理员）— 委托 ProjectService（与项目分发 UI 同一真源）。
     """
-    service = get_dispatch_service(db)
-    
-    assignments = service.dispatch_tasks(
-        project_id=request.project_id,
-        batch_size=request.batch_size,
-        strategy=request.strategy
+    from app.schemas.project_schemas import DispatchRequest, DispatchStrategy
+    from app.services.project_service import ProjectService
+
+    try:
+        strat = DispatchStrategy(request.strategy)
+    except ValueError:
+        strat = DispatchStrategy.smart
+
+    result = ProjectService(db).dispatch(
+        request.project_id,
+        DispatchRequest(batch_size=request.batch_size, strategy=strat),
+        dispatcher_id=current_user.id,
     )
-    
     return {
-        "success": True,
-        "assigned_count": len(assignments),
-        "assignments": assignments
+        "success": bool(result.get("success", True)),
+        "assigned_count": result.get("assigned_count", 0),
+        "assignments": result.get("assignments") or [],
     }
 
 
@@ -419,6 +454,64 @@ def release_task(
         return {"success": True, "message": "任务已释放"}
     else:
         raise_bad_request("任务释放失败")
+
+
+@router.get("/tasks/{task_id}/lock")
+def get_task_lock(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """查询任务标注占用锁状态"""
+    from app.services.task_lock_service import TaskLockService
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise_not_found("任务不存在")
+    return TaskLockService(db).status(task_id)
+
+
+@router.post("/tasks/{task_id}/lock")
+def acquire_task_lock(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """获取或刷新任务标注占用锁（心跳同接口：已持有则续期）"""
+    from app.services.task_lock_service import TaskLockService
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise_not_found("任务不存在")
+    svc = TaskLockService(db)
+    result = svc.acquire(task, current_user)
+    if result.get("acquired"):
+        return result
+    # 未抢到：若调用方已是持有人则 heartbeat；否则返回占用信息
+    hb = svc.heartbeat(task_id, current_user)
+    if hb.get("ok"):
+        st = svc.status(task_id)
+        st["acquired"] = True
+        return st
+    return result
+
+
+@router.delete("/tasks/{task_id}/lock")
+def release_task_lock(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """释放任务标注占用锁"""
+    from app.services.task_lock_service import TaskLockService
+
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise_not_found("任务不存在")
+    ok = TaskLockService(db).release(task_id, current_user)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权释放此锁")
+    return {"ok": True, "task_id": task_id}
 
 
 @router.get("/tasks/stats/{project_id}")

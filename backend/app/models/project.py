@@ -12,6 +12,7 @@ from app.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.user import User
     from app.models.task import Task
+    from app.models.organization import Organization
 
 
 class ProjectType(str, enum.Enum):
@@ -78,6 +79,14 @@ class Project(Base, TimestampMixin):
     # 创建者
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped["User"] = relationship("User")
+
+    # 多租户组织（可空：旧项目无组织）
+    organization_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    organization: Mapped[Optional["Organization"]] = relationship(
+        "Organization", back_populates="projects"
+    )
     
     # 关系
     members: Mapped[List["ProjectMember"]] = relationship("ProjectMember", back_populates="project")

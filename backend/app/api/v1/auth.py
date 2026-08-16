@@ -51,6 +51,7 @@ class UserResponse(BaseModel):
     level: str
     avatar: str | None
     is_admin: bool = False          # 新增字段，默认 False
+    active_org_id: int | None = None
 
     model_config = {"from_attributes": True}   # 允许从 ORM 对象转换
 
@@ -95,7 +96,12 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    
+
+    from app.services.organization_service import OrganizationService
+
+    OrganizationService(db).ensure_personal_org(user)
+    db.refresh(user)
+
     return user
 
 
@@ -122,6 +128,11 @@ def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="用户已被禁用"
         )
+
+    from app.services.organization_service import OrganizationService
+
+    OrganizationService(db).ensure_personal_org(user)
+    db.refresh(user)
     
     # 创建令牌
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -140,14 +151,22 @@ def login(
             "email": user.email,
             "role": user.role,
             "level": user.level,
-            "is_admin": user.is_admin
+            "is_admin": user.is_admin,
+            "active_org_id": user.active_org_id,
         }
     }
 
 
 @router.get("/auth/me", response_model=UserResponse)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """获取当前用户信息"""
+    from app.services.organization_service import OrganizationService
+
+    OrganizationService(db).ensure_personal_org(current_user)
+    db.refresh(current_user)
     return current_user
 
 

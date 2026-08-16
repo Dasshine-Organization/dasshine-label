@@ -127,11 +127,16 @@ def submit_image_task(
         raise HTTPException(status_code=403, detail=str(e)) from e
 
     status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
+    from app.services.project_acl import cross_submit_progress
+
+    progress = cross_submit_progress(task)
+    fully = status_val == "submitted"
     return {
-        "message": "标注已提交",
+        "message": "标注已提交" if fully else f"已提交（交叉 {progress['done']}/{progress['need']}）",
         "annotation_id": ann.id,
         "task_id": task_id,
         "task_status": status_val,
+        "submit_progress": {"done": progress["done"], "need": progress["need"]},
     }
 
 
@@ -152,9 +157,14 @@ def submit_pointcloud_task(
         raise HTTPException(status_code=403, detail=str(e)) from e
 
     status_val = task.status.value if hasattr(task.status, "value") else str(task.status)
+    from app.services.project_acl import cross_submit_progress
+
+    progress = cross_submit_progress(task)
+    fully = status_val == "submitted"
     return {
-        "message": "标注已提交",
+        "message": "标注已提交" if fully else f"已提交（交叉 {progress['done']}/{progress['need']}）",
         "annotation_id": ann.id,
         "task_id": task_id,
         "task_status": status_val,
+        "submit_progress": {"done": progress["done"], "need": progress["need"]},
     }

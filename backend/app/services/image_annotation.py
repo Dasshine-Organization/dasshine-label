@@ -63,7 +63,9 @@ def touch_task_on_draft(db: Session, task: Task, user: User, payload: Dict[str, 
 
     ensure_task_assignee(db, task, user)
 
-    if task.assignee_id == user.id and _payload_has_work(payload):
+    from app.services.project_acl import is_task_assignee
+
+    if is_task_assignee(task, user) and _payload_has_work(payload):
         if task.status in (TaskStatus.PENDING, TaskStatus.ASSIGNED):
             task.status = TaskStatus.ANNOTATING
             if not task.started_at:
@@ -121,9 +123,9 @@ def submit_image_annotation(
         db.add(ann)
 
     now = datetime.now(timezone.utc)
-    task.status = TaskStatus.SUBMITTED
-    task.submitted_at = now
-    task.work_time = work_time
+    from app.services.task_completion import after_annotation_submit
+
+    after_annotation_submit(db, task, user.id, export_doc, work_time=work_time)
     if not task.started_at:
         task.started_at = now
     db.commit()
@@ -180,9 +182,9 @@ def submit_pointcloud_annotation(
         db.add(ann)
 
     now = datetime.now(timezone.utc)
-    task.status = TaskStatus.SUBMITTED
-    task.submitted_at = now
-    task.work_time = work_time
+    from app.services.task_completion import after_annotation_submit
+
+    after_annotation_submit(db, task, user.id, export_doc, work_time=work_time)
     if not task.started_at:
         task.started_at = now
     db.commit()

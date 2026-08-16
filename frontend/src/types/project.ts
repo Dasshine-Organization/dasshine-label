@@ -90,6 +90,7 @@ export interface ProjectSummary {
   approved_items?: number
   price_per_task?: number
   member_count?: number
+  cross_validate_count?: number
   created_at?: string
 }
 

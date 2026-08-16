@@ -16,7 +16,8 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 
-from app.models.task import Task, TaskStatus, Annotation, Review
+from app.models.task import Task, TaskStatus, Review
+from app.models.annotation import Annotation
 from app.models.user import User, AnnotatorLevel
 from app.models.project import Project
 
@@ -70,11 +71,19 @@ class QualityControlService:
         if not task:
             return None
         
-        # 获取所有标注结果
+        # 获取所有最新标注结果（按标注员去重取最新）
         annotations = self.db.query(Annotation).filter(
             Annotation.task_id == task_id,
-            Annotation.is_discarded == False
+            Annotation.is_latest == True,
         ).all()
+
+        # 同一 annotator 多条时保留最新一条
+        by_user: Dict[int, Annotation] = {}
+        for a in annotations:
+            prev = by_user.get(a.annotator_id)
+            if not prev or (a.updated_at or a.created_at or 0) > (prev.updated_at or prev.created_at or 0):
+                by_user[a.annotator_id] = a
+        annotations = list(by_user.values())
         
         if len(annotations) < 2:
             # 只有一个标注，无法计算一致性
@@ -87,7 +96,7 @@ class QualityControlService:
             )
         
         # 提取标注结果
-        results = [self._extract_result_key(a.result) for a in annotations]
+        results = [self._extract_result_key(a.data or {}) for a in annotations]
         
         # 计算简单一致率
         agreement_rate = self._calculate_agreement_rate(results)
@@ -98,8 +107,11 @@ class QualityControlService:
         # 黄金标准题准确率
         golden_accuracy = None
         if task.is_golden and task.golden_answer:
+            gold = task.golden_answer
+            if isinstance(gold, dict) and isinstance(gold.get("data"), dict):
+                gold = gold["data"]
             golden_accuracy = self._calculate_golden_accuracy(
-                results, task.golden_answer
+                results, gold if isinstance(gold, dict) else {"value": gold}
             )
         
         return AgreementResult(
@@ -113,21 +125,46 @@ class QualityControlService:
     
     def _extract_result_key(self, result: Dict) -> str:
         """提取结果的关键特征用于比对"""
-        if isinstance(result, dict):
-            # NER: 提取实体标签组合
-            if 'entities' in result:
-                entities = result['entities']
-                return '|'.join(sorted([
-                    f"{e.get('label')}:{e.get('text')}"
-                    for e in entities
-                ]))
-            # 分类: 提取分类标签
-            elif 'label' in result:
-                return result['label']
-            # 其他: 转成字符串
-            else:
-                return str(sorted(result.items()))
-        return str(result)
+        if not isinstance(result, dict):
+            return str(result)
+        # 嵌套 data（黄金题结构）
+        if "data" in result and isinstance(result["data"], dict) and len(result) <= 4:
+            result = result["data"]
+        # modality spans（NER / OCR）
+        if "spans" in result and isinstance(result["spans"], list):
+            parts = []
+            for e in result["spans"]:
+                if not isinstance(e, dict):
+                    continue
+                label = e.get("label") or e.get("text") or ""
+                text = e.get("text") or ""
+                bbox = e.get("bbox")
+                if bbox:
+                    parts.append(f"{label}:{text}:{tuple(bbox)}")
+                else:
+                    start, end = e.get("start"), e.get("end")
+                    parts.append(f"{label}:{text}:{start}-{end}")
+            return "|".join(sorted(parts))
+        if "entities" in result:
+            entities = result["entities"]
+            return "|".join(sorted([
+                f"{e.get('label')}:{e.get('text')}"
+                for e in entities if isinstance(e, dict)
+            ]))
+        if "annotations2d" in result and isinstance(result["annotations2d"], list):
+            parts = []
+            for b in result["annotations2d"]:
+                if isinstance(b, dict):
+                    parts.append(f"{b.get('label')}:{b.get('bbox') or b.get('xywh')}")
+            return "|".join(sorted(parts))
+        if "transcript" in result:
+            return str(result.get("transcript") or "")
+        if "caption" in result:
+            return str(result.get("caption") or "")
+        if "label" in result:
+            return str(result["label"])
+        return str(sorted((k, str(v)) for k, v in result.items() if k not in ("schema", "submitted_at")))
+
     
     def _calculate_agreement_rate(self, results: List[str]) -> float:
         """
@@ -266,20 +303,27 @@ class QualityControlService:
     
     def _generate_golden_answer(self, task: Task) -> Dict:
         """
-        生成黄金标准答案
-        
-        实际生产环境：
-        - 专家标注
-        - 历史高置信度数据
-        - 多方标注一致的结果
+        生成黄金标准答案：优先用已有最新标注；否则写入可填充的占位结构。
         """
-        # 模拟生成标准答案
+        ann = (
+            self.db.query(Annotation)
+            .filter(Annotation.task_id == task.id, Annotation.is_latest == True)
+            .order_by(Annotation.updated_at.desc())
+            .first()
+        )
+        if ann and isinstance(ann.data, dict) and ann.data:
+            return {
+                "data": ann.data,
+                "source": "existing_annotation",
+                "confidence": 1.0,
+                "annotation_id": ann.id,
+            }
         return {
-            "entities": [
-                {"label": "人名", "text": "张三", "start": 0, "end": 2},
-            ],
-            "source": "expert",
-            "confidence": 1.0
+            "data": {},
+            "source": "placeholder",
+            "confidence": 0.0,
+            "note": "awaiting_expert_answer",
+            "task_data_keys": list((task.data or {}).keys())[:12],
         }
     
     def calculate_annotator_quality(self, user_id: int) -> Optional[QualityScore]:
@@ -300,7 +344,7 @@ class QualityControlService:
             and_(
                 Annotation.annotator_id == user_id,
                 Task.is_golden == True,
-                Annotation.is_discarded == False
+                Annotation.is_latest == True,
             )
         ).all()
         
@@ -309,7 +353,9 @@ class QualityControlService:
             for ann in golden_annotations:
                 task = ann.task
                 if task.golden_answer:
-                    if self._results_match(ann.result, task.golden_answer):
+                    gold = task.golden_answer
+                    payload = gold.get("data") if isinstance(gold, dict) and "data" in gold else gold
+                    if self._results_match(ann.data or {}, payload or {}):
                         correct += 1
             accuracy = correct / len(golden_annotations)
         else:

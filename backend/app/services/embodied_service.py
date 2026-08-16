@@ -1509,9 +1509,11 @@ def submit_annotation(
         )
         db.add(ann)
 
-    task.status = TaskStatus.SUBMITTED
-    task.submitted_at = datetime.now(timezone.utc)
-    task.work_time = work_time
+    if not task.started_at:
+        task.started_at = datetime.now(timezone.utc)
+    from app.services.task_completion import after_annotation_submit
+
+    after_annotation_submit(db, task, user.id, payload, work_time=work_time)
     db.commit()
     db.refresh(ann)
     return ann

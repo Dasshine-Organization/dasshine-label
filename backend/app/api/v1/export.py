@@ -141,3 +141,86 @@ def get_export_stats(
             for f in formats
         ],
     }
+
+
+@router.post("/export/{project_id}/jobs")
+def enqueue_export_job(
+    project_id: int,
+    format: Optional[str] = Query(None),
+    status: Optional[str] = Query("approved"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """异步大包导出：入队 Celery，返回 job_id。无 worker 时返回 503。"""
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not (
+        can_review_project(db, project, current_user)
+        or can_administrate_project(db, project, current_user)
+    ):
+        raise HTTPException(status_code=403, detail="无权导出该项目")
+
+    category = _resolve_project_category(project)
+    fmt = (format or default_format_for(category)).strip().lower()
+    try:
+        from app.tasks.export_tasks import export_project_data
+
+        async_result = export_project_data.delay(
+            project_id, fmt, current_user.id, status or "approved"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"后台导出不可用，请使用同步导出或启动 Celery/Redis（{e}）",
+        ) from e
+
+    return {
+        "job_id": async_result.id,
+        "status": "queued",
+        "project_id": project_id,
+        "format": fmt,
+    }
+
+
+@router.get("/export/jobs/{job_id}")
+def get_export_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """查询异步导出任务状态。"""
+    try:
+        from celery.result import AsyncResult
+        from app.celery_app import celery_app
+
+        result = AsyncResult(job_id, app=celery_app)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"无法查询导出任务（{e}）",
+        ) from e
+
+    state = (result.state or "PENDING").upper()
+    payload = {
+        "job_id": job_id,
+        "state": state,
+        "ready": result.ready(),
+        "successful": result.successful() if result.ready() else None,
+    }
+    if result.successful():
+        data = result.result if isinstance(result.result, dict) else {}
+        payload.update(
+            {
+                "status": "completed",
+                "download_url": data.get("download_url"),
+                "bytes": data.get("bytes"),
+                "format": data.get("format"),
+                "project_id": data.get("project_id"),
+            }
+        )
+    elif result.failed():
+        payload["status"] = "failed"
+        payload["error"] = str(result.result)
+    else:
+        payload["status"] = "running" if state == "STARTED" else "queued"
+    return payload

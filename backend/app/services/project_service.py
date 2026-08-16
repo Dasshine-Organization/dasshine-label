@@ -153,6 +153,14 @@ class ProjectService:
             "dispatch_logs": [],
         }
 
+        org_id = None
+        creator = self.db.query(User).filter(User.id == creator_id).first()
+        if creator is not None:
+            from app.services.organization_service import OrganizationService
+
+            org = OrganizationService(self.db).ensure_personal_org(creator)
+            org_id = creator.active_org_id or org.id
+
         project = Project(
             name=payload.name,
             description=payload.description,
@@ -166,6 +174,7 @@ class ProjectService:
             auto_label_threshold=payload.auto_label_threshold,
             quality_config={},
             created_by_id=creator_id,
+            organization_id=org_id,
         )
         self.db.add(project)
         self.db.commit()
@@ -202,6 +211,7 @@ class ProjectService:
         status: Optional[str] = None,
         category: Optional[str] = None,
         user_id: Optional[int] = None,
+        org_id: Optional[int] = None,
     ) -> List[Project]:
         q = self.db.query(Project)
         if status:
@@ -209,6 +219,8 @@ class ProjectService:
                 q = q.filter(Project.status == ProjectStatus(status))
             except ValueError:
                 logger.warning("Unknown project status filter: %s", status)
+        if org_id is not None:
+            q = q.filter(Project.organization_id == org_id)
         if user_id:
             member_project_ids = (
                 self.db.query(ProjectMember.project_id)
@@ -525,6 +537,7 @@ class ProjectService:
 
         schema = _get_schema(project)
         batch_id = str(uuid_lib.uuid4())
+        cross_n = self._cross_validate_count(schema)
 
         pending = (
             self.db.query(Task)
@@ -557,56 +570,61 @@ class ProjectService:
         assignments, failed = [], 0
 
         if payload.strategy == DispatchStrategy.smart:
-            scored = sorted(
-                [(u, self._score_user(u, project, active)) for u, active in eligible if self._score_user(u, project, active) > 0],
-                key=lambda x: x[1], reverse=True
-            )
             for task in pending:
-                ok = False
-                for user, score in scored:
-                    if self._try_assign(task, user, score, batch_id):
-                        assignments.append(self._adict(task, user, score))
-                        ok = True
-                        # refresh active counts
-                        eligible = [(u, _active_tasks_count(u, self.db)) for u, _ in eligible]
-                        scored = sorted(
-                            [(u, self._score_user(u, project, a)) for u, a in eligible if self._score_user(u, project, a) > 0],
-                            key=lambda x: x[1], reverse=True
-                        )
-                        break
-                if not ok:
+                scored = self._scored_pool(eligible, project)
+                picks = scored[:cross_n]
+                if not picks:
+                    failed += 1
+                    continue
+                added = self._assign_task_multi(task, picks, batch_id, cross_n)
+                if added:
+                    assignments.extend(added)
+                    eligible = [(u, _active_tasks_count(u, self.db)) for u, _ in eligible]
+                else:
                     failed += 1
 
         elif payload.strategy == DispatchStrategy.random:
             for task in pending:
-                pool = [(u, a) for u, a in eligible if self._score_user(u, project, a) > 0]
+                pool = self._scored_pool(eligible, project)
                 if not pool:
                     failed += 1
                     continue
-                user, active = random.choice(pool)
-                score = self._score_user(user, project, active)
-                if self._try_assign(task, user, score, batch_id):
-                    assignments.append(self._adict(task, user, score))
+                random.shuffle(pool)
+                picks = pool[:cross_n]
+                added = self._assign_task_multi(task, picks, batch_id, cross_n)
+                if added:
+                    assignments.extend(added)
+                    eligible = [(u, _active_tasks_count(u, self.db)) for u, _ in eligible]
                 else:
                     failed += 1
 
         else:  # round_robin / manual
-            pool = [(u, a) for u, a in eligible if self._score_user(u, project, a) > 0]
+            pool = self._scored_pool(eligible, project)
             if not pool:
                 failed = len(pending)
             else:
                 idx = 0
                 for task in pending:
-                    ok = False
-                    for _ in range(len(pool)):
-                        user, active = pool[idx % len(pool)]
-                        idx += 1
-                        score = self._score_user(user, project, active)
-                        if self._try_assign(task, user, score, batch_id):
-                            assignments.append(self._adict(task, user, score))
-                            ok = True
+                    if not pool:
+                        failed += 1
+                        continue
+                    picks = []
+                    seen = set()
+                    for _ in range(len(pool) * 2):
+                        if len(picks) >= cross_n:
                             break
-                    if not ok:
+                        user, score = pool[idx % len(pool)]
+                        idx += 1
+                        if user.id in seen:
+                            continue
+                        seen.add(user.id)
+                        picks.append((user, score))
+                    added = self._assign_task_multi(task, picks, batch_id, cross_n)
+                    if added:
+                        assignments.extend(added)
+                        eligible = [(u, _active_tasks_count(u, self.db)) for u, _ in eligible]
+                        pool = self._scored_pool(eligible, project)
+                    else:
                         failed += 1
 
         # Save dispatch log into annotation_schema
@@ -615,7 +633,9 @@ class ProjectService:
             "batch_id": batch_id,
             "strategy": payload.strategy.value,
             "total": len(pending),
-            "assigned": len(assignments),
+            "assigned": len({a["task_id"] for a in assignments}),
+            "assignment_rows": len(assignments),
+            "cross_validate_count": cross_n,
             "failed": failed,
             "dispatcher_id": dispatcher_id,
             "dispatched_at": datetime.utcnow().isoformat(),
@@ -627,25 +647,79 @@ class ProjectService:
         return {
             "success": True,
             "batch_id": batch_id,
-            "assigned_count": len(assignments),
+            "assigned_count": len({a["task_id"] for a in assignments}),
             "failed_count": failed,
             "strategy": payload.strategy.value,
             "assignments": assignments,
-            "message": f"成功分派 {len(assignments)} 个任务",
+            "message": f"成功分派 {len({a['task_id'] for a in assignments})} 个任务"
+            + (f"（交叉 {cross_n} 人）" if cross_n > 1 else ""),
         }
 
-    def _try_assign(self, task: Task, user: User, score: float, batch_id: str) -> bool:
+    @staticmethod
+    def _cross_validate_count(schema: Dict[str, Any]) -> int:
+        try:
+            n = int(schema.get("cross_validate_count") or 1)
+        except (TypeError, ValueError):
+            n = 1
+        return max(1, min(n, 5))
+
+    def _scored_pool(self, eligible: List, project: Optional[Project] = None) -> List:
+        out = []
+        for u, active in eligible:
+            if project is not None:
+                score = self._score_user(u, project, active)
+            else:
+                score = max(0.01, 1.0 - (active / 50.0))
+            if score > 0:
+                out.append((u, score))
+        out.sort(key=lambda x: x[1], reverse=True)
+        return out
+
+    def _assign_task_multi(
+        self,
+        task: Task,
+        picks: List,
+        batch_id: str,
+        cross_n: int,
+    ) -> List[Dict]:
+        """将任务分给最多 cross_n 人；写 TaskAssignment；共标人写入 task_metadata。"""
+        if not picks:
+            return []
         fresh = self.db.query(Task).filter(Task.id == task.id).with_for_update().first()
         if not fresh or fresh.status != TaskStatus.PENDING or fresh.assignee_id:
-            return False
+            return []
+
+        primary_user, primary_score = picks[0]
+        co = picks[1:cross_n]
+        assignee_ids = [primary_user.id] + [u.id for u, _ in co]
+
         fresh.status = TaskStatus.ASSIGNED
-        fresh.assignee_id = user.id
+        fresh.assignee_id = primary_user.id
         fresh.assigned_at = datetime.utcnow()
-        if fresh.task_metadata is None:
-            fresh.task_metadata = {}
-        fresh.task_metadata = {**fresh.task_metadata, "dispatch_score": score, "batch_id": batch_id}
+        meta = dict(fresh.task_metadata or {})
+        meta.update({
+            "dispatch_score": primary_score,
+            "batch_id": batch_id,
+            "cross_validate_count": cross_n,
+            "assignee_ids": assignee_ids,
+            "co_assignee_ids": [u.id for u, _ in co],
+        })
+        fresh.task_metadata = meta
+
+        results = []
+        for user, score in picks[:cross_n]:
+            self.db.add(TaskAssignment(
+                task_id=fresh.id,
+                user_id=user.id,
+                action="assign",
+                reason=f"batch:{batch_id}",
+            ))
+            results.append(self._adict(fresh, user, score))
         self.db.commit()
-        return True
+        return results
+
+    def _try_assign(self, task: Task, user: User, score: float, batch_id: str) -> bool:
+        return bool(self._assign_task_multi(task, [(user, score)], batch_id, 1))
 
     @staticmethod
     def _adict(task: Task, user: User, score: float) -> Dict:

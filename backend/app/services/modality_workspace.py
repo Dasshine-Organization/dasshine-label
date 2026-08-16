@@ -24,7 +24,9 @@ VIDEO_ANN_TYPES = {"video_tracking", "video_action", "video_caption"}
 def resolve_modality(category: Optional[str], ann_type: Optional[str]) -> str:
     if ann_type in ("image_caption", "vqa", "rlhf"):
         return "multimodal"
-    if category in ("nlp", "ocr"):
+    if category == "ocr" or (ann_type or "").startswith("ocr_"):
+        return "ocr"
+    if category == "nlp":
         return "text"
     if category == "audio":
         return "audio"
@@ -43,6 +45,8 @@ def resolve_modality(category: Optional[str], ann_type: Optional[str]) -> str:
 
 def default_payload(modality: str, ann_type: str) -> Dict[str, Any]:
     base = {"schema": "dasshine.modality.v1", "modality": modality, "ann_type": ann_type}
+    if modality == "ocr":
+        return {**base, "spans": []}  # {id,text,bbox:[x,y,w,h],label?}
     if modality == "text":
         return {
             **base,
@@ -85,6 +89,9 @@ def extract_task_content(task: Task) -> Dict[str, Any]:
         out["audio_url"] = task.data_url
     if not out["video_url"] and task.data_url and "video" in str(data.get("media_type", "")):
         out["video_url"] = task.data_url
+    # OCR / 无扩展名的图链：回退到 data_url
+    if not out["image_url"] and task.data_url and not out["audio_url"] and not out["video_url"]:
+        out["image_url"] = task.data_url
     return out
 
 
@@ -107,6 +114,8 @@ def _is_image_url(url: Optional[str]) -> bool:
 
 
 def _annotation_type_for(modality: str, ann_type: str) -> AnnotationType:
+    if modality == "ocr":
+        return AnnotationType.BOUNDING_BOX
     if modality == "audio":
         return AnnotationType.CLASSIFICATION if ann_type == "emotion_audio" else AnnotationType.TEXT
     if modality == "video":
@@ -143,6 +152,12 @@ def get_workspace(
             {"id": "PER", "name": "人名", "color": "#ec4899"},
             {"id": "ORG", "name": "机构", "color": "#00d4ff"},
             {"id": "LOC", "name": "地点", "color": "#10b981"},
+        ]
+    if modality == "ocr" and not label_classes:
+        label_classes = [
+            {"id": "text", "name": "文字", "color": "#06b6d4"},
+            {"id": "title", "name": "标题", "color": "#f97316"},
+            {"id": "table", "name": "表格", "color": "#a78bfa"},
         ]
 
     return {
@@ -222,9 +237,9 @@ def submit_workspace(
         db.add(ann)
 
     save_workspace(db, task, user, payload)
-    task.status = TaskStatus.SUBMITTED
-    task.submitted_at = datetime.now(timezone.utc)
-    task.work_time = work_time
+    from app.services.task_completion import after_annotation_submit
+
+    after_annotation_submit(db, task, user.id, export_doc.get("annotation") or payload, work_time=work_time)
     db.commit()
     db.refresh(ann)
     return ann

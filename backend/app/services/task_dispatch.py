@@ -71,41 +71,22 @@ class TaskDispatchService:
         strategy: str = "smart"
     ) -> List[Dict]:
         """
-        批量分发任务
-        
-        Args:
-            project_id: 项目ID
-            batch_size: 批量大小
-            strategy: 分发策略 (smart/random/round_robin)
-        
-        Returns:
-            分配结果列表
+        批量分发任务 — 委托 ProjectService（与 UI 分发同一真源）。
         """
-        logger.info(f"开始分发项目 {project_id} 的任务，策略: {strategy}")
-        
-        # 1. 获取待分配任务
-        pending_tasks = self._get_pending_tasks(project_id, batch_size)
-        if not pending_tasks:
-            logger.info("没有待分配的任务")
-            return []
-        
-        # 2. 获取可用标注员
-        available_annotators = self._get_available_annotators(project_id)
-        if not available_annotators:
-            logger.warning("没有可用的标注员")
-            return []
-        
-        # 3. 执行任务分配
-        results = []
-        for task in pending_tasks:
-            assignment = self._assign_task(task, available_annotators, strategy)
-            if assignment:
-                results.append(assignment)
-                # 更新标注员缓存（避免重复分配）
-                self._update_annotator_cache(available_annotators, assignment['user_id'])
-        
-        logger.info(f"成功分配 {len(results)}/{len(pending_tasks)} 个任务")
-        return results
+        from app.schemas.project_schemas import DispatchRequest, DispatchStrategy
+        from app.services.project_service import ProjectService
+
+        try:
+            strat = DispatchStrategy(strategy)
+        except ValueError:
+            strat = DispatchStrategy.smart
+
+        result = ProjectService(self.db).dispatch(
+            project_id,
+            DispatchRequest(batch_size=batch_size, strategy=strat),
+            dispatcher_id=0,
+        )
+        return result.get("assignments") or []
     
     def _assign_task(
         self,
@@ -380,36 +361,26 @@ class TaskDispatchService:
     
     def _lock_and_assign(self, task: Task, annotator: User) -> Dict:
         """
-        锁定任务并分配给标注员
-        
-        防冲突机制：
-        1. 更新任务状态为 ASSIGNED
-        2. 设置 assignee_id
-        3. 设置 assigned_at 时间戳
+        锁定任务并分配给标注员（claim 路径）。
+        委托 ProjectService._assign_task_multi，写 TaskAssignment + metadata。
         """
-        # 检查任务是否已被分配（二次确认）
-        fresh_task = self.db.query(Task).filter(
-            Task.id == task.id
-        ).with_for_update().first()  # 行锁
-        
-        if fresh_task.status != TaskStatus.PENDING or fresh_task.assignee_id:
+        import uuid as uuid_lib
+        from app.services.project_service import ProjectService
+
+        batch_id = f"claim-{uuid_lib.uuid4().hex[:12]}"
+        svc = ProjectService(self.db)
+        # score 1.0 for self-claim
+        added = svc._assign_task_multi(task, [(annotator, 1.0)], batch_id, cross_n=1)
+        if not added:
             logger.warning(f"任务 {task.id} 已被分配")
             return None
-        
-        # 分配任务
-        fresh_task.assignee_id = annotator.id
-        fresh_task.status = TaskStatus.ASSIGNED
-        fresh_task.assigned_at = datetime.utcnow()
-        
-        self.db.commit()
-        
+        row = added[0]
         logger.info(f"任务 {task.id} 分配给 {annotator.username}")
-        
         return {
-            'task_id': task.id,
-            'user_id': annotator.id,
-            'username': annotator.username,
-            'assigned_at': fresh_task.assigned_at.isoformat()
+            "task_id": row["task_id"],
+            "user_id": row["user_id"],
+            "username": row["username"],
+            "assigned_at": row["assigned_at"],
         }
     
     def _update_annotator_cache(self, annotators: List[User], assigned_user_id: int):

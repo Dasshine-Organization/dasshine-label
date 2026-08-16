@@ -25,6 +25,9 @@ function filenameFromDisposition(header: string | undefined, fallback: string): 
   return m?.[1] || fallback
 }
 
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/api\/v1\/?$/, '')
+  || ''
+
 export default function ProjectExportMenu({
   projectId,
   projectName = 'project',
@@ -136,6 +139,48 @@ export default function ProjectExportMenu({
     [pid, projectName, status],
   )
 
+  const doBackgroundExport = useCallback(
+    async (formatId: string, label: string) => {
+      if (!pid || Number.isNaN(pid)) {
+        message.error('缺少项目 ID')
+        return
+      }
+      setExporting(true)
+      setOpen(false)
+      try {
+        const { data } = await exportApi.startJob(pid, formatId, status)
+        const jobId = data.job_id
+        message.loading({ content: `后台导出 ${label}…`, key: 'export-job', duration: 0 })
+        for (let i = 0; i < 90; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          const { data: job } = await exportApi.getJob(jobId)
+          if (job.status === 'completed' && job.download_url) {
+            message.success({ content: `后台导出完成：${label}`, key: 'export-job' })
+            const href = job.download_url.startsWith('http')
+              ? job.download_url
+              : `${API_ORIGIN}${job.download_url}`
+            window.open(href, '_blank')
+            return
+          }
+          if (job.status === 'failed') {
+            throw new Error(job.error || '后台导出失败')
+          }
+        }
+        message.error({ content: '后台导出超时，请稍后重试或用同步导出', key: 'export-job' })
+      } catch (e: unknown) {
+        const err = e as { response?: { data?: { detail?: string }; status?: number }; message?: string }
+        const detail =
+          err.response?.data?.detail
+          || err.message
+          || '后台导出不可用，请用同步导出'
+        message.error({ content: String(detail), key: 'export-job' })
+      } finally {
+        setExporting(false)
+      }
+    },
+    [pid, status],
+  )
+
   if (!pid || Number.isNaN(pid)) return null
 
   const btnClass = compact
@@ -153,17 +198,25 @@ export default function ProjectExportMenu({
         {exporting ? '导出中…' : '导出数据 ▾'}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px] rounded-xl border border-[#1e1e2e] bg-[#12121a] shadow-xl py-1">
+        <div className="absolute right-0 top-full mt-1 z-50 min-w-[240px] rounded-xl border border-[#1e1e2e] bg-[#12121a] shadow-xl py-1">
           {menuFormats.map(f => (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => void doExport(f.id, f.label)}
-              className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
-            >
-              <div className="text-xs text-white/80">{f.label}</div>
-              <div className="text-[10px] text-white/30 mt-0.5 line-clamp-2">{f.description}</div>
-            </button>
+            <div key={f.id} className="border-b border-[#1e1e2e]/60 last:border-0">
+              <button
+                type="button"
+                onClick={() => void doExport(f.id, f.label)}
+                className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors"
+              >
+                <div className="text-xs text-white/80">{f.label}</div>
+                <div className="text-[10px] text-white/30 mt-0.5 line-clamp-2">{f.description}</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => void doBackgroundExport(f.id, f.label)}
+                className="w-full text-left px-3 pb-2 text-[10px] text-[#00d4ff]/70 hover:text-[#00d4ff]"
+              >
+                后台导出（大包）
+              </button>
+            </div>
           ))}
         </div>
       )}

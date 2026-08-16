@@ -40,7 +40,7 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     """初始化数据库（创建表）"""
     from app.models.base import Base
-    from app.models import user, project, task, annotation, annotation_draft, embodied  # noqa: F401
+    from app.models import user, project, task, annotation, annotation_draft, embodied, organization, task_lock  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

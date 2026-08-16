@@ -11,6 +11,7 @@ import ImageAnnotation from './pages/ImageAnnotation'
 import PointCloudAnnotation from './pages/PointCloudAnnotation'
 import EmbodiedAnnotation from './pages/EmbodiedAnnotation'
 import TextAnnotation from './pages/TextAnnotation'
+import OcrAnnotation from './pages/OcrAnnotation'
 import AudioAnnotation from './pages/AudioAnnotation'
 import VideoAnnotation from './pages/VideoAnnotation'
 import MultimodalAnnotation from './pages/MultimodalAnnotation'
@@ -68,6 +69,7 @@ function App() {
           <Route path="annotate-3d/:taskId" element={<PointCloudAnnotation />} />
           <Route path="annotate-image/:taskId" element={<ImageAnnotation />} />
           <Route path="annotate-text/:taskId" element={<TextAnnotation />} />
+          <Route path="annotate-ocr/:taskId" element={<OcrAnnotation />} />
           <Route path="annotate-audio/:taskId" element={<AudioAnnotation />} />
           <Route path="annotate-video/:taskId" element={<VideoAnnotation />} />
           <Route path="annotate-multimodal/:taskId" element={<MultimodalAnnotation />} />
