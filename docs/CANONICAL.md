@@ -44,3 +44,7 @@
 - 部署：`docs/deploy.md`；类别 Hub：`frontend/src/utils/categoryHubs.ts`（侧栏与工作台同源）
 - 存储：`STORAGE_BACKEND=local|s3`，S3 兼容见 `docs/storage_s3.md`
 - 导出：全模态三种主流格式见 `docs/export_formats.md`
+- 具身 P0：指令/成败/区间段、真值关节导出、Episode 导入、提交审核 — `docs/embodied_p0.md`
+- 具身 P1：LeRobot dataset ZIP、抓取/轨迹、审核多机位预览 — `docs/embodied_p1.md`
+- 具身 P2：力觉/触觉、偏好对、parquet+本地视频打包、HDF5、策略预标注 — `docs/embodied_p2.md`
+- 具身 P3：RLDS-lite、远端视频下载、3D 抓取/轨迹面板、外接策略 HTTP — `docs/embodied_p3.md`

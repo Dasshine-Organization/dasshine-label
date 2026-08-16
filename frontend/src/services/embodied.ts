@@ -7,6 +7,37 @@ import type {
   FrameAnnotation,
 } from '../mocks/embodiedDemoData'
 
+export type ActionSegment = {
+  id: string
+  startFrame: number
+  endFrame: number
+  actionId: string
+  note?: string
+}
+
+export type GraspPose = {
+  id: string
+  frame: number
+  position: { x: number; y: number; z: number }
+  orientation: { roll: number; pitch: number; yaw: number }
+  width: number
+  label: string
+}
+
+export type TrajectoryPoint = {
+  frame: number
+  ee: { x: number; y: number; z: number; roll: number; pitch: number; yaw: number }
+  gripper: number
+}
+
+export type PreferencePair = {
+  id: string
+  prompt: string
+  chosen: string
+  rejected: string
+  winner: 'a' | 'b' | 'tie'
+}
+
 export type EmbodiedWorkspaceState = {
   task_id: number
   task_ref: string
@@ -14,11 +45,17 @@ export type EmbodiedWorkspaceState = {
   action_labels: ActionLabelDef[]
   frame_actions: Record<number, FrameAnnotation>
   committed_frames: number[]
+  instruction: string
+  success: 'success' | 'fail' | 'unknown'
+  segments: ActionSegment[]
+  grasps: GraspPose[]
+  trajectory: TrajectoryPoint[]
+  preferences: PreferencePair[]
   updated_at?: string | null
 }
 
 type EpisodeDto = {
-  case_id: 'mars' | 'aloha'
+  case_id: string
   project_name: string
   clip_duration_sec: number
   fps: number
@@ -32,6 +69,9 @@ type EpisodeDto = {
     scale?: number | null
   }>
   attribution: { title: string; detail_url: string; note: string }
+  instruction?: string
+  success?: 'success' | 'fail' | 'unknown'
+  has_proprioception?: boolean
 }
 
 function mapEpisode(dto: EpisodeDto): EmbodiedDemoEpisode {
@@ -56,6 +96,92 @@ function mapEpisode(dto: EpisodeDto): EmbodiedDemoEpisode {
     totalFrames: dto.total_frames,
     streams,
     attribution,
+    instruction: dto.instruction || '',
+    success: dto.success || 'unknown',
+    hasProprioception: Boolean(dto.has_proprioception),
+  }
+}
+
+function mapWorkspace(data: {
+  task_id: number
+  task_ref: string
+  user_id: number
+  action_labels: ActionLabelDef[]
+  frame_actions: Record<string, { action_id: string; note?: string }>
+  committed_frames: number[]
+  instruction?: string
+  success?: string
+  segments?: Array<{
+    id: string
+    start_frame: number
+    end_frame: number
+    action_id: string
+    note?: string
+  }>
+  grasps?: Array<{
+    id: string
+    frame: number
+    position: { x: number; y: number; z: number }
+    orientation: { roll: number; pitch: number; yaw: number }
+    width: number
+    label: string
+  }>
+  trajectory?: Array<{
+    frame: number
+    ee: { x: number; y: number; z: number; roll: number; pitch: number; yaw: number }
+    gripper: number
+  }>
+  preferences?: Array<{
+    id: string
+    prompt: string
+    chosen: string
+    rejected: string
+    winner: string
+  }>
+  updated_at?: string | null
+}): EmbodiedWorkspaceState {
+  const frameActions: Record<number, FrameAnnotation> = {}
+  for (const [k, v] of Object.entries(data.frame_actions || {})) {
+    frameActions[Number(k)] = { actionId: v.action_id, note: v.note }
+  }
+  const success = data.success
+  return {
+    task_id: data.task_id,
+    task_ref: data.task_ref,
+    user_id: data.user_id,
+    action_labels: data.action_labels,
+    frame_actions: frameActions,
+    committed_frames: data.committed_frames,
+    instruction: data.instruction || '',
+    success: success === 'success' || success === 'fail' ? success : 'unknown',
+    segments: (data.segments || []).map(s => ({
+      id: s.id,
+      startFrame: s.start_frame,
+      endFrame: s.end_frame,
+      actionId: s.action_id,
+      note: s.note,
+    })),
+    grasps: (data.grasps || []).map(g => ({
+      id: g.id,
+      frame: g.frame,
+      position: g.position,
+      orientation: g.orientation,
+      width: g.width,
+      label: g.label,
+    })),
+    trajectory: (data.trajectory || []).map(t => ({
+      frame: t.frame,
+      ee: t.ee,
+      gripper: t.gripper,
+    })),
+    preferences: (data.preferences || []).map(p => ({
+      id: p.id,
+      prompt: p.prompt || '',
+      chosen: p.chosen || '',
+      rejected: p.rejected || '',
+      winner: p.winner === 'a' || p.winner === 'b' ? p.winner : 'tie',
+    })),
+    updated_at: data.updated_at,
   }
 }
 
@@ -70,28 +196,8 @@ export const embodiedApi = {
   },
 
   getWorkspace: async (taskRef: string): Promise<EmbodiedWorkspaceState> => {
-    const { data } = await api.get<{
-      task_id: number
-      task_ref: string
-      user_id: number
-      action_labels: ActionLabelDef[]
-      frame_actions: Record<string, { action_id: string; note?: string }>
-      committed_frames: number[]
-      updated_at?: string | null
-    }>(`/embodied/tasks/${taskRef}/workspace`)
-    const frameActions: Record<number, FrameAnnotation> = {}
-    for (const [k, v] of Object.entries(data.frame_actions || {})) {
-      frameActions[Number(k)] = { actionId: v.action_id, note: v.note }
-    }
-    return {
-      task_id: data.task_id,
-      task_ref: data.task_ref,
-      user_id: data.user_id,
-      action_labels: data.action_labels,
-      frame_actions: frameActions,
-      committed_frames: data.committed_frames,
-      updated_at: data.updated_at,
-    }
+    const { data } = await api.get(`/embodied/tasks/${taskRef}/workspace`)
+    return mapWorkspace(data)
   },
 
   saveWorkspace: async (
@@ -100,6 +206,12 @@ export const embodiedApi = {
       action_labels: ActionLabelDef[]
       frame_actions: Record<number, FrameAnnotation>
       committed_frames: number[]
+      instruction?: string
+      success?: 'success' | 'fail' | 'unknown'
+      segments?: ActionSegment[]
+      grasps?: GraspPose[]
+      trajectory?: TrajectoryPoint[]
+      preferences?: PreferencePair[]
     },
   ): Promise<EmbodiedWorkspaceState> => {
     const frame_actions: Record<number, { action_id: string; note?: string }> = {}
@@ -110,20 +222,20 @@ export const embodiedApi = {
       action_labels: payload.action_labels,
       frame_actions,
       committed_frames: payload.committed_frames,
+      instruction: payload.instruction,
+      success: payload.success,
+      segments: (payload.segments || []).map(s => ({
+        id: s.id,
+        start_frame: s.startFrame,
+        end_frame: s.endFrame,
+        action_id: s.actionId,
+        note: s.note,
+      })),
+      grasps: payload.grasps,
+      trajectory: payload.trajectory,
+      preferences: payload.preferences,
     })
-    const frameActions: Record<number, FrameAnnotation> = {}
-    for (const [k, v] of Object.entries(data.frame_actions || {})) {
-      frameActions[Number(k)] = { actionId: v.action_id, note: v.note }
-    }
-    return {
-      task_id: data.task_id,
-      task_ref: data.task_ref,
-      user_id: data.user_id,
-      action_labels: data.action_labels,
-      frame_actions: frameActions,
-      committed_frames: data.committed_frames,
-      updated_at: data.updated_at,
-    }
+    return mapWorkspace(data)
   },
 
   patchFrame: (
@@ -137,6 +249,19 @@ export const embodiedApi = {
 
   exportTorqueCsv: (taskRef: string) =>
     api.post(`/embodied/tasks/${taskRef}/export`, { format: 'torque_csv' }, { responseType: 'blob' }),
+
+  exportLerobotJsonl: (taskRef: string) =>
+    api.post(
+      `/embodied/tasks/${taskRef}/export`,
+      { format: 'lerobot_jsonl' },
+      { responseType: 'blob' },
+    ),
+
+  exportHdf5: (taskRef: string) =>
+    api.post(`/embodied/tasks/${taskRef}/export`, { format: 'hdf5' }, { responseType: 'blob' }),
+
+  prelabel: (taskRef: string, model: 'auto' | 'embodied_policy_demo' | 'embodied_policy_http' = 'auto') =>
+    api.post(`/embodied/tasks/${taskRef}/prelabel`, { model }),
 
   submit: (taskRef: string, workTimeSec: number) =>
     api.post(`/embodied/tasks/${taskRef}/submit`, { work_time: workTimeSec }),

@@ -36,6 +36,8 @@ boto3==1.34.34
 pandas==2.1.3
 numpy==1.26.2
 Pillow==10.1.0
+pyarrow>=14,<19
+h5py>=3.10,<4
 
 # 2D 预标注 · 本地 YOLO（可选，按需安装）
 # ultralytics==8.1.0

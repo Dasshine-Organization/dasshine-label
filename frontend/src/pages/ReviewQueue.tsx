@@ -27,6 +27,19 @@ type ReviewDetail = {
     points?: Array<{ x: number; y: number } | [number, number]>
     bbox?: number[]
   }>
+  embodied_preview?: {
+    instruction?: string
+    success?: string
+    segments?: Array<{ start_frame?: number; end_frame?: number; action_id?: string }>
+    grasps?: unknown[]
+    trajectory_points?: number
+    preferences?: number
+    streams?: Array<{ id?: string; label?: string; src: string }>
+    joints_source?: string
+    force_source?: string
+    tactile_source?: string
+    total_frames?: number
+  } | null
   last_reject_feedback?: string
 }
 
@@ -246,7 +259,59 @@ export default function ReviewQueue() {
               </div>
 
               <div className="flex-1 relative bg-[#0a0a0f] min-h-[280px] flex items-center justify-center overflow-hidden">
-                {detail.data_url ? (
+                {detail.embodied_preview ? (
+                  <div className="w-full h-full p-4 overflow-y-auto space-y-3">
+                    <div className="text-xs text-white/70 space-y-1">
+                      <div>
+                        <span className="text-white/35">指令：</span>
+                        {detail.embodied_preview.instruction || '（空）'}
+                      </div>
+                      <div>
+                        <span className="text-white/35">结果：</span>
+                        {detail.embodied_preview.success || 'unknown'}
+                        {detail.embodied_preview.joints_source && (
+                          <span className="text-white/30 ml-2">
+                            · joints={detail.embodied_preview.joints_source}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-white/35">
+                        区间 {(detail.embodied_preview.segments || []).length} · 抓取{' '}
+                        {(detail.embodied_preview.grasps || []).length} · 轨迹点{' '}
+                        {detail.embodied_preview.trajectory_points ?? 0} · 偏好{' '}
+                        {detail.embodied_preview.preferences ?? 0}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(detail.embodied_preview.streams || []).map((s, i) => (
+                        <div
+                          key={s.id ?? i}
+                          className="rounded-lg border border-[#1e1e2e] overflow-hidden bg-black aspect-video relative"
+                        >
+                          <video
+                            src={s.src}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute bottom-1 left-1 text-[10px] text-white/70 bg-black/50 px-1 rounded">
+                            {s.label || s.id || `cam${i}`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {(detail.embodied_preview.segments || []).length > 0 && (
+                      <div className="text-[11px] text-white/45 font-mono space-y-0.5">
+                        {(detail.embodied_preview.segments || []).slice(0, 8).map((s, i) => (
+                          <div key={i}>
+                            [{s.start_frame}–{s.end_frame}] {s.action_id}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : detail.data_url ? (
                   <div className="relative max-w-full max-h-[52vh]">
                     <img
                       src={detail.data_url}

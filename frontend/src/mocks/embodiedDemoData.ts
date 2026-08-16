@@ -21,13 +21,16 @@ export type EmbodiedDemoAttribution = {
 }
 
 export interface EmbodiedDemoEpisode {
-  caseId: 'mars' | 'aloha'
+  caseId: string
   projectName: string
   clipDurationSec: number
   fps: number
   totalFrames: number
   streams: CameraStream[]
   attribution: EmbodiedDemoAttribution
+  instruction?: string
+  success?: 'success' | 'fail' | 'unknown'
+  hasProprioception?: boolean
 }
 
 /** 动作标签定义（可增删改；帧上存 id） */
@@ -187,6 +190,34 @@ export function jointStatesForFrame(
     const torque_nm = Math.cos(t * 1.3 + j * 0.7) * 3.2 + Math.sin(f * 0.21 + j) * 0.4
     return { name, position_rad: round(position_rad, 4), torque_nm: round(torque_nm, 3) }
   })
+}
+
+export function forceWrenchForFrame(frame: number, totalFrames: number) {
+  const tf = Math.max(1, totalFrames)
+  const f = ((frame % tf) + tf) % tf
+  const t = f * 0.12
+  return {
+    fx: round(Math.sin(t) * 2.4, 4),
+    fy: round(Math.cos(t * 1.1) * 1.6, 4),
+    fz: round(-4.5 + Math.sin(t * 0.7) * 1.2, 4),
+    tx: round(Math.cos(t * 0.9) * 0.35, 4),
+    ty: round(Math.sin(t * 1.2) * 0.28, 4),
+    tz: round(Math.cos(t * 0.5) * 0.15, 4),
+  }
+}
+
+const TACTILE_PADS = ['pad_thumb', 'pad_index', 'pad_middle', 'pad_palm'] as const
+
+export function tactileForFrame(frame: number, totalFrames: number) {
+  const tf = Math.max(1, totalFrames)
+  const f = ((frame % tf) + tf) % tf
+  const t = f * 0.15
+  return {
+    pads: TACTILE_PADS.map((name, i) => ({
+      name,
+      pressure: round(Math.max(0, Math.sin(t + i * 0.8) * 0.55 + 0.35), 4),
+    })),
+  }
 }
 
 function labelText(labels: ActionLabelDef[], id: string): string {

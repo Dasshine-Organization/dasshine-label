@@ -303,6 +303,26 @@ async def import_jsonl(
     return result.to_dict()
 
 
+# ── Embodied episodes ─────────────────────────────────────────────────────────
+
+@router.post("/{project_id}/import/embodied")
+async def import_embodied(
+    project_id: int,
+    file: Optional[UploadFile] = File(None),
+    priority: int = Form(5),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """导入具身 Episode JSON / JSONL（含 streams，可选 proprioception）。"""
+    _check_project_access(project_id, current_user, db)
+    if not file:
+        raise HTTPException(400, "请上传 episode JSON 或 JSONL 文件")
+    content = (await file.read()).decode("utf-8")
+    svc = _import_service(db)
+    result = svc.import_embodied_episodes(project_id, content, priority=priority)
+    return result.to_dict()
+
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 @router.get("/{project_id}/import/stats")

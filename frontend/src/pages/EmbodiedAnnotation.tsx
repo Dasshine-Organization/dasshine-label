@@ -10,10 +10,19 @@ import {
   frameToTimeSec,
   getEpisodeForTaskId,
   jointStatesForFrame,
+  forceWrenchForFrame,
+  tactileForFrame,
   timeSecToFrame,
 } from '../mocks/embodiedDemoData'
-import { embodiedApi } from '../services/embodied'
+import {
+  embodiedApi,
+  type ActionSegment,
+  type GraspPose,
+  type PreferencePair,
+  type TrajectoryPoint,
+} from '../services/embodied'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
+import EmbodiedPose3DViewer from '../components/embodied/EmbodiedPose3DViewer'
 import useAuthStore from '../store/authStore'
 import { notifyDraftSaved } from '../utils/draftSaveNotify'
 import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
@@ -30,6 +39,9 @@ type EmbodiedLocalDraft = {
   action_labels: ActionLabelDef[]
   frame_actions: Record<number, FrameAnnotation>
   committed_frames: number[]
+  instruction?: string
+  success?: 'success' | 'fail' | 'unknown'
+  segments?: ActionSegment[]
   savedAt: string
 }
 
@@ -54,6 +66,9 @@ function writeEmbodiedLocalDraft(
   labels: ActionLabelDef[],
   frameActions: Record<number, FrameAnnotation>,
   committedFrames: Set<number>,
+  instruction = '',
+  success: 'success' | 'fail' | 'unknown' = 'unknown',
+  segments: ActionSegment[] = [],
 ): string {
   const savedAt = new Date().toISOString()
   try {
@@ -63,6 +78,9 @@ function writeEmbodiedLocalDraft(
         action_labels: labels,
         frame_actions: frameActions,
         committed_frames: [...committedFrames].sort((a, b) => a - b),
+        instruction,
+        success,
+        segments,
         savedAt,
       } satisfies EmbodiedLocalDraft),
     )
@@ -114,6 +132,16 @@ export default function EmbodiedAnnotation() {
   const [failedStreamIds, setFailedStreamIds] = useState<Set<string>>(() => new Set())
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [savingDraft, setSavingDraft] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [instruction, setInstruction] = useState('')
+  const [success, setSuccess] = useState<'success' | 'fail' | 'unknown'>('unknown')
+  const [segments, setSegments] = useState<ActionSegment[]>([])
+  const [grasps, setGrasps] = useState<GraspPose[]>([])
+  const [trajectory, setTrajectory] = useState<TrajectoryPoint[]>([])
+  const [preferences, setPreferences] = useState<PreferencePair[]>([])
+  const [prelabeling, setPrelabeling] = useState(false)
+  const [selectedGraspId, setSelectedGraspId] = useState<string | null>(null)
+  const [segStart, setSegStart] = useState<number | null>(null)
 
   useEffect(() => {
     setEpisode(mockEpisode)
@@ -128,10 +156,16 @@ export default function EmbodiedAnnotation() {
         setLabels(local.action_labels?.length ? local.action_labels : [...DEFAULT_ACTION_LABELS])
         setCommittedFrames(new Set(local.committed_frames ?? []))
         setFrameActions(local.frame_actions)
+        setInstruction(local.instruction || '')
+        setSuccess(local.success || 'unknown')
+        setSegments(local.segments || [])
         setLastSavedAt(local.savedAt)
       } else {
         setLabels([...DEFAULT_ACTION_LABELS])
         setCommittedFrames(new Set())
+        setInstruction(mockEpisode.instruction || '')
+        setSuccess(mockEpisode.success || 'unknown')
+        setSegments([])
         setFrameActions(
           Object.fromEntries(
             Array.from({ length: mockEpisode.totalFrames }, (_, i) => [i, { actionId: 'idle' }]),
@@ -164,6 +198,11 @@ export default function EmbodiedAnnotation() {
             actions[i] = local.frame_actions[i] ?? { actionId: 'idle' }
           }
           setFrameActions(actions)
+          setInstruction(local.instruction || ep.instruction || '')
+          setSuccess(local.success || ep.success || 'unknown')
+          setSegments(local.segments || [])
+          setGrasps([])
+          setTrajectory([])
           setLastSavedAt(local.savedAt)
         } else {
           setLabels(ws.action_labels.length ? ws.action_labels : [...DEFAULT_ACTION_LABELS])
@@ -173,6 +212,12 @@ export default function EmbodiedAnnotation() {
             actions[i] = ws.frame_actions[i] ?? { actionId: 'idle' }
           }
           setFrameActions(actions)
+          setInstruction(ws.instruction || ep.instruction || '')
+          setSuccess(ws.success || ep.success || 'unknown')
+          setSegments(ws.segments || [])
+          setGrasps(ws.grasps || [])
+          setTrajectory(ws.trajectory || [])
+          setPreferences(ws.preferences || [])
         }
         setHydrated(true)
       } catch {
@@ -198,13 +243,27 @@ export default function EmbodiedAnnotation() {
   const persistWorkspace = useCallback(async (showToast = false) => {
     setSavingDraft(true)
     try {
-      const at = writeEmbodiedLocalDraft(taskId, labels, frameActions, committedFrames)
+      const at = writeEmbodiedLocalDraft(
+        taskId,
+        labels,
+        frameActions,
+        committedFrames,
+        instruction,
+        success,
+        segments,
+      )
       setLastSavedAt(at)
       if (useBackend) {
         await embodiedApi.saveWorkspace(taskId, {
           action_labels: labels,
           frame_actions: frameActions,
           committed_frames: [...committedFrames].sort((a, b) => a - b),
+          instruction,
+          success,
+          segments,
+          grasps,
+          trajectory,
+          preferences,
         })
       }
       dirtyRef.current = false
@@ -214,7 +273,7 @@ export default function EmbodiedAnnotation() {
     } finally {
       setSavingDraft(false)
     }
-  }, [useBackend, taskId, labels, frameActions, committedFrames])
+  }, [useBackend, taskId, labels, frameActions, committedFrames, instruction, success, segments, grasps, trajectory, preferences])
 
   useEffect(() => {
     if (!hydrated) return
@@ -226,7 +285,7 @@ export default function EmbodiedAnnotation() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, [labels, frameActions, committedFrames, hydrated, persistWorkspace])
+  }, [labels, frameActions, committedFrames, instruction, success, segments, grasps, trajectory, preferences, hydrated, persistWorkspace])
 
   useEffect(() => {
     if (!hydrated || useBackend) return
@@ -259,6 +318,12 @@ export default function EmbodiedAnnotation() {
 
   const currentAnn = frameActions[frame] ?? { actionId: 'idle' }
   const joints = useMemo(() => jointStatesForFrame(frame, totalFrames), [frame, totalFrames])
+  const force = useMemo(() => forceWrenchForFrame(frame, totalFrames), [frame, totalFrames])
+  const tactile = useMemo(() => tactileForFrame(frame, totalFrames), [frame, totalFrames])
+  const trajAtFrame = trajectory.find(t => t.frame === frame)
+  const force = useMemo(() => forceWrenchForFrame(frame, totalFrames), [frame, totalFrames])
+  const tactile = useMemo(() => tactileForFrame(frame, totalFrames), [frame, totalFrames])
+  const trajAtFrame = trajectory.find(t => t.frame === frame)
 
   const seekAllToFrame = useCallback(
     (frameIdx: number) => {
@@ -482,8 +547,31 @@ export default function EmbodiedAnnotation() {
     )
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' })
     downloadBlob(blob, `embodied_${taskId}_${Date.now()}.json`)
-    message.success('已导出 JSON')
-  }, [frameActions, taskId, episode, labels, committedFrames, useBackend])
+    message.success('已导出本地 JSON')
+  }, [useBackend, taskId, frameActions, episode, labels, committedFrames])
+
+  const runPrelabel = useCallback(async () => {
+    if (!useBackend) {
+      message.info('演示模式无策略预标注')
+      return
+    }
+    setPrelabeling(true)
+    try {
+      await embodiedApi.prelabel(taskId)
+      const ws = await embodiedApi.getWorkspace(taskId)
+      setInstruction(ws.instruction || '')
+      setSuccess(ws.success)
+      setSegments(ws.segments || [])
+      setGrasps(ws.grasps || [])
+      setTrajectory(ws.trajectory || [])
+      setPreferences(ws.preferences || [])
+      message.success('已应用策略预标注')
+    } catch {
+      message.error('预标注失败')
+    } finally {
+      setPrelabeling(false)
+    }
+  }, [useBackend, taskId])
 
   const exportTorqueCsv = useCallback(async () => {
     if (useBackend) {
@@ -507,6 +595,51 @@ export default function EmbodiedAnnotation() {
     downloadBlob(blob, `embodied_torque_${taskId}_${Date.now()}.csv`)
     message.success('已导出扭矩 CSV')
   }, [taskId, totalFrames, clipDurationSec, useBackend])
+
+  const handleSubmit = useCallback(async () => {
+    if (!useBackend) {
+      message.info('演示任务仅本地保存，请用正式任务提交审核')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await persistWorkspace(false)
+      await embodiedApi.submit(taskId, 30)
+      message.success('已提交审核')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail ?? '提交失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }, [useBackend, persistWorkspace, taskId])
+
+  const markSegmentStart = useCallback(() => {
+    setSegStart(frame)
+    message.info(`区间起点：帧 ${frame}`)
+  }, [frame])
+
+  const markSegmentEnd = useCallback(() => {
+    if (segStart == null) {
+      message.warning('请先标记区间起点')
+      return
+    }
+    const start = Math.min(segStart, frame)
+    const end = Math.max(segStart, frame)
+    const actionId = frameActions[frame]?.actionId || 'idle'
+    setSegments(prev => [
+      ...prev,
+      {
+        id: `seg_${Date.now().toString(36)}`,
+        startFrame: start,
+        endFrame: end,
+        actionId,
+        note: '',
+      },
+    ])
+    setSegStart(null)
+    message.success(`已添加区间 ${start}–${end}`)
+  }, [segStart, frame, frameActions])
 
   const toggleContinuous = useCallback(() => {
     setContinuous(c => {
@@ -580,6 +713,22 @@ export default function EmbodiedAnnotation() {
             projectName={episode.projectName}
             compact
           />
+          <button
+            type="button"
+            onClick={() => void runPrelabel()}
+            disabled={prelabeling || !useBackend}
+            className="text-xs px-3 py-1.5 rounded-lg border border-[#10b981]/40 text-[#10b981] hover:bg-[#10b981]/10 disabled:opacity-40"
+          >
+            {prelabeling ? '预标注中…' : '策略预标注'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={submitting || !useBackend}
+            className="text-xs px-3 py-1.5 rounded-lg border border-[#a78bfa]/40 text-[#a78bfa] hover:bg-[#a78bfa]/10 disabled:opacity-40"
+          >
+            {submitting ? '提交中…' : '提交审核'}
+          </button>
           <button
             type="button"
             onClick={exportJson}
@@ -686,6 +835,294 @@ export default function EmbodiedAnnotation() {
         </section>
 
         <section className="xl:col-span-4 min-w-0 flex flex-col gap-5">
+          <div className="rounded-xl border border-[#1e1e2e] bg-[#12121a] p-4 space-y-3">
+            <div className="text-[11px] text-white/40 uppercase tracking-widest">任务指令 / 结局</div>
+            <label className="block text-[11px] text-white/40 mb-1">语言指令（VLA）</label>
+            <textarea
+              value={instruction}
+              onChange={e => setInstruction(e.target.value)}
+              rows={2}
+              placeholder="例如：把咖啡杯放到托盘上"
+              className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white placeholder-white/20 resize-none focus:outline-none focus:border-[#f97316]/40"
+            />
+            <label className="block text-[11px] text-white/40 mb-1">执行结果</label>
+            <select
+              value={success}
+              onChange={e => setSuccess(e.target.value as 'success' | 'fail' | 'unknown')}
+              className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#f97316]/40"
+            >
+              <option value="unknown">未知</option>
+              <option value="success">成功</option>
+              <option value="fail">失败</option>
+            </select>
+            <div className="text-[11px] text-white/40 uppercase tracking-widest pt-1">动作区间</div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={markSegmentStart}
+                className="text-xs px-3 py-1.5 rounded-lg border border-[#00d4ff]/35 text-[#00d4ff] hover:bg-[#00d4ff]/10"
+              >
+                标记起点{segStart != null ? ` (${segStart})` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={markSegmentEnd}
+                className="text-xs px-3 py-1.5 rounded-lg border border-[#10b981]/35 text-[#10b981] hover:bg-[#10b981]/10"
+              >
+                标记终点并添加
+              </button>
+            </div>
+            {segments.length > 0 && (
+              <div className="space-y-1.5 max-h-28 overflow-y-auto">
+                {segments.map(s => (
+                  <div key={s.id} className="flex items-center gap-2 text-[11px] text-white/55">
+                    <span className="font-mono text-white/35">
+                      {s.startFrame}–{s.endFrame}
+                    </span>
+                    <span>{labels.find(l => l.id === s.actionId)?.label || s.actionId}</span>
+                    <button
+                      type="button"
+                      className="ml-auto text-red-400/80 hover:text-red-300"
+                      onClick={() => setSegments(prev => prev.filter(x => x.id !== s.id))}
+                    >
+                      删
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="text-[11px] text-white/40 uppercase tracking-widest pt-2">抓取 / 轨迹</div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setGrasps(prev => [
+                    ...prev,
+                    {
+                      id: `g_${Date.now().toString(36)}`,
+                      frame,
+                      position: { x: 0, y: 0, z: 0 },
+                      orientation: { roll: 0, pitch: 0, yaw: 0 },
+                      width: 0.08,
+                      label: 'grasp',
+                    },
+                  ])
+                }
+                className="text-xs px-3 py-1.5 rounded-lg border border-[#f97316]/35 text-[#f97316] hover:bg-[#f97316]/10"
+              >
+                本帧加抓取点
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setTrajectory(prev => [
+                    ...prev.filter(p => p.frame !== frame),
+                    {
+                      frame,
+                      ee: { x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 },
+                      gripper: 0,
+                    },
+                  ])
+                }
+                className="text-xs px-3 py-1.5 rounded-lg border border-[#a78bfa]/35 text-[#a78bfa] hover:bg-[#a78bfa]/10"
+              >
+                本帧加 EE 轨迹点
+              </button>
+            </div>
+            <p className="text-[10px] text-white/25">
+              抓取 {grasps.length} · 轨迹点 {trajectory.length}（数值 + 3D 拖拽同步）
+            </p>
+            <EmbodiedPose3DViewer
+              grasps={grasps}
+              trajectory={trajectory}
+              frame={frame}
+              selectedGraspId={selectedGraspId}
+              onSelectGrasp={setSelectedGraspId}
+              onMoveGrasp={(id, position) =>
+                setGrasps(prev => prev.map(g => (g.id === id ? { ...g, position } : g)))
+              }
+              onMoveTrajectory={(f, ee) =>
+                setTrajectory(prev => prev.map(p => (p.frame === f ? { ...p, ee } : p)))
+              }
+            />
+            {grasps.filter(g => g.frame === frame).map(g => (
+              <div key={g.id} className="grid grid-cols-3 gap-1 text-[10px]">
+                {(['x', 'y', 'z'] as const).map(k => (
+                  <label key={k} className="text-white/35">
+                    pos.{k}
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={g.position[k]}
+                      onChange={e =>
+                        setGrasps(prev =>
+                          prev.map(x =>
+                            x.id === g.id
+                              ? { ...x, position: { ...x.position, [k]: Number(e.target.value) } }
+                              : x,
+                          ),
+                        )
+                      }
+                      className="w-full mt-0.5 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-1 py-1 text-white font-mono"
+                    />
+                  </label>
+                ))}
+                {(['roll', 'pitch', 'yaw'] as const).map(k => (
+                  <label key={k} className="text-white/35">
+                    {k}
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={g.orientation[k]}
+                      onChange={e =>
+                        setGrasps(prev =>
+                          prev.map(x =>
+                            x.id === g.id
+                              ? { ...x, orientation: { ...x.orientation, [k]: Number(e.target.value) } }
+                              : x,
+                          ),
+                        )
+                      }
+                      className="w-full mt-0.5 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-1 py-1 text-white font-mono"
+                    />
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  className="col-span-3 text-left text-red-400/80"
+                  onClick={() => setGrasps(prev => prev.filter(x => x.id !== g.id))}
+                >
+                  删除本抓取
+                </button>
+              </div>
+            ))}
+            {trajAtFrame && (
+              <div className="grid grid-cols-3 gap-1 text-[10px] pt-1 border-t border-[#1e1e2e]/80">
+                {(['x', 'y', 'z', 'roll', 'pitch', 'yaw'] as const).map(k => (
+                  <label key={k} className="text-white/35">
+                    ee.{k}
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={trajAtFrame.ee[k]}
+                      onChange={e =>
+                        setTrajectory(prev =>
+                          prev.map(p =>
+                            p.frame === frame
+                              ? { ...p, ee: { ...p.ee, [k]: Number(e.target.value) } }
+                              : p,
+                          ),
+                        )
+                      }
+                      className="w-full mt-0.5 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-1 py-1 text-white font-mono"
+                    />
+                  </label>
+                ))}
+                <label className="text-white/35 col-span-3">
+                  gripper
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={trajAtFrame.gripper}
+                    onChange={e =>
+                      setTrajectory(prev =>
+                        prev.map(p =>
+                          p.frame === frame ? { ...p, gripper: Number(e.target.value) } : p,
+                        ),
+                      )
+                    }
+                    className="w-full mt-0.5 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-1 py-1 text-white font-mono"
+                  />
+                </label>
+              </div>
+            )}
+            <div className="text-[11px] text-white/40 uppercase tracking-widest pt-2">偏好对（RLHF）</div>
+            <button
+              type="button"
+              onClick={() =>
+                setPreferences(prev => [
+                  ...prev,
+                  {
+                    id: `pref_${Date.now().toString(36)}`,
+                    prompt: instruction || '比较两种执行方式',
+                    chosen: '动作更稳、抓取成功',
+                    rejected: '抖动导致失败',
+                    winner: 'a',
+                  },
+                ])
+              }
+              className="text-xs px-3 py-1.5 rounded-lg border border-[#fbbf24]/35 text-[#fbbf24] hover:bg-[#fbbf24]/10"
+            >
+              添加偏好对
+            </button>
+            {preferences.length > 0 && (
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {preferences.map(p => (
+                  <div key={p.id} className="space-y-1 text-[10px] border border-[#1e1e2e] rounded-lg p-2">
+                    <input
+                      value={p.prompt}
+                      onChange={e =>
+                        setPreferences(prev =>
+                          prev.map(x => (x.id === p.id ? { ...x, prompt: e.target.value } : x)),
+                        )
+                      }
+                      placeholder="比较提示"
+                      className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1 text-white"
+                    />
+                    <textarea
+                      value={p.chosen}
+                      onChange={e =>
+                        setPreferences(prev =>
+                          prev.map(x => (x.id === p.id ? { ...x, chosen: e.target.value } : x)),
+                        )
+                      }
+                      rows={1}
+                      placeholder="chosen / A"
+                      className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1 text-white resize-none"
+                    />
+                    <textarea
+                      value={p.rejected}
+                      onChange={e =>
+                        setPreferences(prev =>
+                          prev.map(x => (x.id === p.id ? { ...x, rejected: e.target.value } : x)),
+                        )
+                      }
+                      rows={1}
+                      placeholder="rejected / B"
+                      className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1 text-white resize-none"
+                    />
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={p.winner}
+                        onChange={e =>
+                          setPreferences(prev =>
+                            prev.map(x =>
+                              x.id === p.id
+                                ? { ...x, winner: e.target.value as PreferencePair['winner'] }
+                                : x,
+                            ),
+                          )
+                        }
+                        className="bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1 text-white"
+                      >
+                        <option value="a">胜 A</option>
+                        <option value="b">胜 B</option>
+                        <option value="tie">平局</option>
+                      </select>
+                      <button
+                        type="button"
+                        className="ml-auto text-red-400/80"
+                        onClick={() => setPreferences(prev => prev.filter(x => x.id !== p.id))}
+                      >
+                        删
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl border border-[#1e1e2e] bg-[#12121a] p-4 space-y-3">
             <div className="text-[11px] text-white/40 uppercase tracking-widest">动作标签库</div>
             <p className="text-[10px] text-white/25">可添加、修改文案、删除（「待机」不可删）。下拉框与导出均使用此处定义。</p>
@@ -843,10 +1280,12 @@ export default function EmbodiedAnnotation() {
 
           <div className="rounded-xl border border-[#1e1e2e] bg-[#12121a] overflow-hidden flex-1 min-h-[200px]">
             <div className="px-3 py-2 border-b border-[#1e1e2e] flex items-center justify-between bg-[#0a0a0f]">
-              <span className="text-[11px] text-white/40 uppercase tracking-widest">关节状态（mock）</span>
-              <span className="text-[10px] text-white/25">rad / N·m</span>
+              <span className="text-[11px] text-white/40 uppercase tracking-widest">
+                关节 / 力觉 / 触觉（mock）
+              </span>
+              <span className="text-[10px] text-white/25">rad · N·m · N</span>
             </div>
-            <div className="overflow-x-auto max-h-[280px] overflow-y-auto">
+            <div className="overflow-x-auto max-h-[200px] overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-[#12121a]">
                   <tr className="text-left text-white/35 border-b border-[#1e1e2e]">
@@ -865,6 +1304,21 @@ export default function EmbodiedAnnotation() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="px-3 py-2 border-t border-[#1e1e2e] grid grid-cols-3 gap-2 text-[10px] font-mono text-white/55">
+              {(['fx', 'fy', 'fz', 'tx', 'ty', 'tz'] as const).map(k => (
+                <div key={k}>
+                  <span className="text-white/30">{k} </span>
+                  {force[k]}
+                </div>
+              ))}
+            </div>
+            <div className="px-3 py-2 border-t border-[#1e1e2e] flex flex-wrap gap-2 text-[10px]">
+              {tactile.pads.map(p => (
+                <span key={p.name} className="font-mono text-white/50">
+                  {p.name}:{p.pressure}
+                </span>
+              ))}
             </div>
           </div>
         </section>

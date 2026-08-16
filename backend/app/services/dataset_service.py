@@ -568,6 +568,129 @@ class DatasetImportService:
         self.db.commit()
         return result
 
+    def import_embodied_episodes(
+        self,
+        project_id: int,
+        payload: Any,
+        priority: int = 5,
+    ) -> ImportResult:
+        """
+        导入具身 episode。
+        支持：
+        - { "episodes": [ {...}, ... ] }
+        - 单个 episode 对象（含 streams）
+        - JSONL：每行一个 episode 或 {episode: ...}
+        """
+        result = ImportResult()
+        project = self._get_project(project_id)
+        if not project:
+            result.errors.append(f"Project {project_id} not found")
+            return result
+
+        from app.services.embodied_episodes import normalize_episode
+
+        episodes: List[Dict[str, Any]] = []
+        if isinstance(payload, str):
+            text = payload.strip()
+            if not text:
+                result.errors.append("空内容")
+                return result
+            if text.startswith("{"):
+                try:
+                    obj = json.loads(text)
+                    if isinstance(obj, dict) and isinstance(obj.get("episodes"), list):
+                        episodes = [e for e in obj["episodes"] if isinstance(e, dict)]
+                    elif isinstance(obj, dict) and obj.get("streams"):
+                        episodes = [obj]
+                    else:
+                        result.errors.append("JSON 需为 episode 或 {episodes:[...]}")
+                        return result
+                except json.JSONDecodeError:
+                    # treat as jsonl
+                    for i, line in enumerate(text.splitlines()):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                            if isinstance(obj, dict) and isinstance(obj.get("embodied_episode"), dict):
+                                episodes.append(obj["embodied_episode"])
+                            elif isinstance(obj, dict) and obj.get("streams"):
+                                episodes.append(obj)
+                            elif isinstance(obj, dict) and isinstance(obj.get("episode"), dict):
+                                episodes.append(obj["episode"])
+                            else:
+                                result.errors.append(f"Line {i}: not an episode")
+                        except Exception as e:
+                            result.errors.append(f"Line {i}: {e}")
+            else:
+                for i, line in enumerate(text.splitlines()):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        if isinstance(obj, dict) and obj.get("streams"):
+                            episodes.append(obj)
+                        elif isinstance(obj, dict) and isinstance(obj.get("embodied_episode"), dict):
+                            episodes.append(obj["embodied_episode"])
+                        else:
+                            result.errors.append(f"Line {i}: not an episode")
+                    except Exception as e:
+                        result.errors.append(f"Line {i}: {e}")
+        elif isinstance(payload, dict):
+            if isinstance(payload.get("episodes"), list):
+                episodes = [e for e in payload["episodes"] if isinstance(e, dict)]
+            elif payload.get("streams"):
+                episodes = [payload]
+            else:
+                result.errors.append("无效 episode JSON")
+                return result
+        elif isinstance(payload, list):
+            episodes = [e for e in payload if isinstance(e, dict)]
+        else:
+            result.errors.append("不支持的 payload 类型")
+            return result
+
+        result.total = len(episodes)
+        for i, raw in enumerate(episodes):
+            try:
+                ep = normalize_episode(raw)
+                streams = ep.get("streams") or []
+                data_url = streams[0].get("src") if streams else None
+                vla = {
+                    "instruction": ep.get("instruction") or "",
+                    "success": ep.get("success") if ep.get("success") in ("success", "fail", "unknown") else "unknown",
+                    "segments": ep.get("segments") if isinstance(ep.get("segments"), list) else [],
+                }
+                # strip internal cache key from stored episode
+                store_ep = {k: v for k, v in ep.items() if not str(k).startswith("_")}
+                task = Task(
+                    project_id=project_id,
+                    data={
+                        "embodied_episode": store_ep,
+                        "embodied_slug": store_ep.get("case_id") or f"import_{i}",
+                        "embodied_vla": vla,
+                        "file_name": f"episode_{i}",
+                    },
+                    data_url=data_url,
+                    task_metadata={
+                        "source": "embodied_import",
+                        "episode_index": i,
+                        "has_proprioception": bool(ep.get("has_proprioception")),
+                    },
+                    priority=priority,
+                    status=TaskStatus.PENDING,
+                )
+                self.db.add(task)
+                result.success += 1
+            except Exception as e:
+                result.errors.append(f"Episode {i}: {e}")
+
+        project.total_items = (project.total_items or 0) + result.success
+        self.db.commit()
+        return result
+
     def get_import_stats(self, project_id: int) -> Dict[str, Any]:
         """获取项目导入统计"""
         from sqlalchemy import func

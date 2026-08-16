@@ -5,7 +5,7 @@ import api from '../../services/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ImportMethod = 'url' | 'text' | 'local_files' | 'zip' | 'coco' | 'yolo' | 'csv' | 'jsonl'
+type ImportMethod = 'url' | 'text' | 'local_files' | 'zip' | 'coco' | 'yolo' | 'csv' | 'jsonl' | 'embodied'
 
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,.bmp,.tiff,.gif'
 const DEFAULT_FILE_SERVER =
@@ -89,8 +89,16 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     label: 'JSONL 文件',
     desc: '每行一个 JSON 对象，适合对话/QA 数据',
     color: '#f97316',
-    forCategories: ['nlp', 'multimodal', 'embodied'],
+    forCategories: ['nlp', 'multimodal'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M4 4C4 4 2 5 2 8s2 4 2 4M12 4c0 0 2 1 2 4s-2 4-2 4M6 9l1.5-2L9 9l1.5-2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  },
+  {
+    id: 'embodied',
+    label: '具身 Episode',
+    desc: 'Episode JSON / JSONL（多机位 streams + 可选 proprioception）',
+    color: '#f97316',
+    forCategories: ['embodied'],
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 1" strokeLinecap="round"/></svg>,
   },
 ]
 
@@ -498,6 +506,15 @@ export default function DatasetImportModal({ projectId, projectName, category, o
           })
           res = data
         }
+      } else if (method === 'embodied') {
+        if (!file) throw new Error('请选择 Episode JSON / JSONL 文件')
+        const form = new FormData()
+        form.append('file', file)
+        form.append('priority', String(priority))
+        const { data } = await api.post(`/projects/${projectId}/import/embodied`, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        res = data
       }
 
       setResult(res)
@@ -753,6 +770,19 @@ export default function DatasetImportModal({ projectId, projectName, category, o
                   className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2.5 text-xs text-white font-mono
                     placeholder-white/15 focus:outline-none focus:border-[#00d4ff]/40 resize-none transition-all"
                 />
+              </div>
+            )}
+
+            {method === 'embodied' && (
+              <div className="space-y-2">
+                <DropZone
+                  accept=".json,.jsonl"
+                  label="拖入 Episode JSON（{episodes:[…]} 或单 episode）/ JSONL"
+                  onFile={setFile}
+                />
+                <p className="text-[10px] text-white/25 leading-relaxed">
+                  每个 episode 需含 streams；可选 instruction、success、proprioception（真值关节）、segments。
+                </p>
               </div>
             )}
 

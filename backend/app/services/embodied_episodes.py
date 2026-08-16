@@ -119,12 +119,57 @@ def episode_from_task_data(data: Optional[Dict[str, Any]]) -> Optional[Dict[str,
         return None
     ep = data.get("embodied_episode")
     if isinstance(ep, dict) and ep.get("streams"):
-        return ep
+        return normalize_episode(ep)
     return None
+
+
+def normalize_episode(ep: Dict[str, Any]) -> Dict[str, Any]:
+    """补齐自定义 episode 必填字段，保留 proprioception / instruction。"""
+    out = dict(ep)
+    out.setdefault("case_id", str(ep.get("case_id") or "custom"))
+    out.setdefault("project_name", str(ep.get("project_name") or "Embodied episode"))
+    fps = int(ep.get("fps") or 12)
+    clip = float(ep.get("clip_duration_sec") or 0)
+    total = int(ep.get("total_frames") or 0)
+    if total <= 0 and clip > 0:
+        total = max(1, round(clip * fps))
+    if clip <= 0 and total > 0:
+        clip = total / max(1, fps)
+    if total <= 0:
+        total = 24
+        clip = clip or 2.0
+    out["fps"] = fps
+    out["clip_duration_sec"] = clip
+    out["total_frames"] = total
+    out.setdefault("instruction", ep.get("instruction") or ep.get("task") or "")
+    out.setdefault("success", ep.get("success") or "unknown")
+    if not isinstance(out.get("attribution"), dict):
+        out["attribution"] = {
+            "title": out.get("project_name") or "custom episode",
+            "detail_url": "",
+            "note": "imported episode",
+        }
+    # index proprioception by frame for fast lookup
+    prop = ep.get("proprioception") or ep.get("frames_proprio") or []
+    by_idx: Dict[int, Dict[str, Any]] = {}
+    if isinstance(prop, list):
+        for row in prop:
+            if not isinstance(row, dict):
+                continue
+            try:
+                idx = int(row.get("index", row.get("frame_index", -1)))
+            except (TypeError, ValueError):
+                continue
+            if idx < 0:
+                continue
+            by_idx[idx] = row
+    out["_proprio_by_index"] = by_idx
+    out["has_proprioception"] = bool(by_idx)
+    return out
 
 
 def resolve_episode(task_data: Optional[Dict[str, Any]], slug: Optional[str]) -> Dict[str, Any]:
     custom = episode_from_task_data(task_data)
     if custom:
         return custom
-    return episode_for_slug(slug or "demo")
+    return normalize_episode(episode_for_slug(slug or "demo"))

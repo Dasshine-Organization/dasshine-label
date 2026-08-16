@@ -105,6 +105,40 @@ def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
     return []
 
 
+def _extract_embodied_preview(task: Task, ann: Optional[Annotation]) -> Optional[Dict[str, Any]]:
+    """具身审核预览：多路相机 + VLA 摘要。"""
+    data = task.data if isinstance(task.data, dict) else {}
+    ep = data.get("embodied_episode") if isinstance(data.get("embodied_episode"), dict) else {}
+    payload = ann.data if ann and isinstance(ann.data, dict) else {}
+    streams = payload.get("streams") or ep.get("streams") or []
+    cams = []
+    for s in streams:
+        if isinstance(s, dict) and s.get("src"):
+            cams.append({"id": s.get("id"), "label": s.get("label") or s.get("id"), "src": s.get("src")})
+    if not cams and task.data_url:
+        cams = [{"id": "main", "label": "main", "src": task.data_url}]
+    if not cams and not payload.get("schema", "").startswith("dasshine.embodied"):
+        # 非具身 annotation 且无 episode
+        cat_hint = str(data.get("embodied_slug") or "")
+        if not ep and not cat_hint:
+            return None
+    return {
+        "instruction": payload.get("instruction") or (data.get("embodied_vla") or {}).get("instruction") or ep.get("instruction") or "",
+        "success": payload.get("success") or (data.get("embodied_vla") or {}).get("success") or "unknown",
+        "segments": payload.get("segments") or (data.get("embodied_vla") or {}).get("segments") or [],
+        "grasps": payload.get("grasps") or (data.get("embodied_vla") or {}).get("grasps") or [],
+        "trajectory_points": len(payload.get("trajectory") or (data.get("embodied_vla") or {}).get("trajectory") or []),
+        "preferences": len(payload.get("preferences") or (data.get("embodied_vla") or {}).get("preferences") or []),
+        "committed_frames": payload.get("committed_frames") or [],
+        "joints_source": payload.get("joints_source"),
+        "force_source": payload.get("force_source"),
+        "tactile_source": payload.get("tactile_source"),
+        "streams": cams[:8],
+        "fps": payload.get("fps") or ep.get("fps"),
+        "total_frames": payload.get("frames") and len(payload.get("frames") or []) or ep.get("total_frames"),
+    }
+
+
 @router.post("/quality/cross-validation", response_model=CrossValidationResponse)
 def calculate_cross_validation(
     request: CrossValidationRequest,
@@ -217,11 +251,18 @@ def get_review_task_detail(
     latest = _latest_annotation(task)
     schema = _get_schema(task.project)
     data = task.data or {}
+    category = _resolve_project_category(task.project) or schema.get("category")
+    embodied_preview = None
+    if category == "embodied" or (
+        isinstance(latest.data if latest else None, dict)
+        and str((latest.data or {}).get("schema") or "").startswith("dasshine.embodied")
+    ):
+        embodied_preview = _extract_embodied_preview(task, latest)
     return {
         "id": task.id,
         "project_id": task.project_id,
         "project_name": task.project.name,
-        "category": _resolve_project_category(task.project) or schema.get("category"),
+        "category": category,
         "ann_type": schema.get("ann_type"),
         "status": task.status.value if hasattr(task.status, "value") else str(task.status),
         "data_url": task.data_url or data.get("image_url") or data.get("url"),
@@ -231,6 +272,7 @@ def get_review_task_detail(
         "assignee_name": task.assignee.username if task.assignee else None,
         "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
         "annotations2d": _extract_preview_boxes(latest),
+        "embodied_preview": embodied_preview,
         "annotation_id": latest.id if latest else None,
         "work_time": latest.work_time if latest else task.work_time,
         "last_reject_feedback": (task.task_metadata or {}).get("last_reject_feedback"),

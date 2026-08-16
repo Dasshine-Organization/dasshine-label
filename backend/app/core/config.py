@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     PRELABEL_HTTP_ENDPOINT: Optional[str] = None
     PRELABEL_HTTP_API_KEY: Optional[str] = None
 
+    # 具身 P3：外接策略 / 远端视频打包
+    EMBODIED_POLICY_HTTP_ENDPOINT: Optional[str] = None
+    EMBODIED_POLICY_HTTP_API_KEY: Optional[str] = None
+    EMBODIED_POLICY_HTTP_TIMEOUT: float = 30.0
+    EMBODIED_VIDEO_DOWNLOAD: bool = True
+    EMBODIED_VIDEO_DOWNLOAD_MAX_MB: float = 32.0
+    EMBODIED_VIDEO_DOWNLOAD_TIMEOUT: float = 15.0
+    EMBODIED_VIDEO_DOWNLOAD_MAX_STREAMS: int = 8
+
     def resolved_yolo_weights_path(self) -> Path:
         """本地 YOLO 权重路径（存在则用自定义，否则交给 Ultralytics 自动下载）"""
         custom = Path(self.PRELABEL_LOCAL_WEIGHTS_DIR) / self.PRELABEL_YOLO_WEIGHTS
