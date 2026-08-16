@@ -77,4 +77,11 @@
 - 计划：`docs/p8_tenancy_collab.md`
 - 组织：`GET/POST /orgs`、`POST /orgs/{id}/activate`、成员管理；`projects.organization_id`；列表按 `active_org_id`
 - 占用锁：`POST/GET/DELETE /tasks/{id}/lock`（TTL 心跳）；工作台 `TaskLockBanner`
-- **P9：** 完整 CRDT / Yjs、计费配额、黄金题轮换调度
+
+## P9 共识裁决 + 规模化硬化
+
+- 计划：`docs/p9_consensus_scale.md`
+- 审核：`versions[]` 并排；通过时写 `canonical_annotation_id`；导出 `primary_payload` 优先真源
+- 可领任务按组织过滤；任务复合索引；DB pool 读配置；Celery 导出时限 30m
+- 轻量黄金题：`quality_config.golden_claim_ratio` 优先插入 available 池
+- **P10：** 完整 CRDT / Yjs、计费配额、黄金题轮换调度器、异步导入

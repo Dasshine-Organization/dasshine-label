@@ -79,9 +79,18 @@ class Task(Base, TimestampMixin):
     # 是否黄金标准题（测试题）
     is_golden: Mapped[bool] = mapped_column(Boolean, default=False)
     golden_answer: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)  # 标准答案
+
+    # 审核选定的导出真源标注（多人共标裁决）
+    canonical_annotation_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("annotations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     
     # 关系 - 引用外部Annotation模型
-    annotations: Mapped[List["Annotation"]] = relationship("Annotation", back_populates="task")
+    annotations: Mapped[List["Annotation"]] = relationship(
+        "Annotation",
+        back_populates="task",
+        foreign_keys="[Annotation.task_id]",
+    )
     annotation_drafts: Mapped[List["AnnotationDraft"]] = relationship(
         "AnnotationDraft", back_populates="task", cascade="all, delete-orphan"
     )

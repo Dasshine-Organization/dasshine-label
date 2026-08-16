@@ -49,6 +49,8 @@ class ReviewRequest(BaseModel):
     decision: str = Field(..., pattern="^(approved|rejected)$")
     score: Optional[float] = Field(None, ge=0, le=100)
     feedback: Optional[str] = None
+    # 多人共标通过时选定导出真源（annotation UUID）
+    canonical_annotation_id: Optional[str] = None
 
 
 class ReviewResponse(BaseModel):
@@ -81,11 +83,50 @@ class QualityReportResponse(BaseModel):
 
 
 def _latest_annotation(task: Task) -> Optional[Annotation]:
-    anns = [a for a in (task.annotations or []) if getattr(a, "is_latest", True)]
-    if not anns:
-        return None
-    anns.sort(key=lambda a: a.updated_at or a.created_at or 0, reverse=True)
-    return anns[0]
+    from app.services.consensus import resolve_canonical_annotation
+
+    return resolve_canonical_annotation(task)
+
+
+def _version_payloads(db: Session, task: Task) -> List[Dict[str, Any]]:
+    from app.models.user import User
+    from app.services.consensus import latest_annotations
+    from app.services.project_service import _get_schema, _resolve_project_category
+
+    schema = _get_schema(task.project) if task.project else {}
+    category = _resolve_project_category(task.project) if task.project else None
+    canon = getattr(task, "canonical_annotation_id", None)
+    out: List[Dict[str, Any]] = []
+    for ann in latest_annotations(task):
+        user = db.query(User).filter(User.id == ann.annotator_id).first() if ann.annotator_id else None
+        emb = None
+        if category == "embodied" or (
+            isinstance(ann.data, dict)
+            and str((ann.data or {}).get("schema") or "").startswith("dasshine.embodied")
+        ):
+            emb = _extract_embodied_preview(task, ann)
+        mod = None if emb else _extract_modality_preview(ann, category, schema.get("ann_type"))
+        pc = None
+        if category == "pointcloud_3d" or (
+            isinstance(ann.data, dict)
+            and str((ann.data or {}).get("schema") or "").startswith("dasshine.pointcloud")
+        ):
+            pc = _extract_pointcloud_preview(task, ann)
+        out.append(
+            {
+                "annotation_id": ann.id,
+                "annotator_id": ann.annotator_id,
+                "annotator_name": user.username if user else None,
+                "updated_at": ann.updated_at.isoformat() if ann.updated_at else None,
+                "work_time": ann.work_time,
+                "annotations2d": _extract_preview_boxes(ann),
+                "modality_preview": mod,
+                "pointcloud_preview": pc,
+                "embodied_preview": emb,
+                "is_canonical": ann.id == canon,
+            }
+        )
+    return out
 
 
 def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
@@ -363,21 +404,27 @@ def get_review_task_detail(
     schema = _get_schema(task.project)
     data = task.data or {}
     category = _resolve_project_category(task.project) or schema.get("category")
+    versions = _version_payloads(db, task)
+    # 预览默认展示当前选中 canonical，否则第一份
+    preview_ann = latest
+    if versions:
+        # 若前端尚未选 canonical，仍用 resolve；详情顶层字段与选中版本对齐
+        pass
     embodied_preview = None
     if category == "embodied" or (
-        isinstance(latest.data if latest else None, dict)
-        and str((latest.data or {}).get("schema") or "").startswith("dasshine.embodied")
+        isinstance(preview_ann.data if preview_ann else None, dict)
+        and str((preview_ann.data or {}).get("schema") or "").startswith("dasshine.embodied")
     ):
-        embodied_preview = _extract_embodied_preview(task, latest)
+        embodied_preview = _extract_embodied_preview(task, preview_ann)
     modality_preview = None
     if not embodied_preview:
-        modality_preview = _extract_modality_preview(latest, category, schema.get("ann_type"))
+        modality_preview = _extract_modality_preview(preview_ann, category, schema.get("ann_type"))
     pointcloud_preview = None
     if category == "pointcloud_3d" or (
-        isinstance(latest.data if latest else None, dict)
-        and str((latest.data or {}).get("schema") or "").startswith("dasshine.pointcloud")
+        isinstance(preview_ann.data if preview_ann else None, dict)
+        and str((preview_ann.data or {}).get("schema") or "").startswith("dasshine.pointcloud")
     ):
-        pointcloud_preview = _extract_pointcloud_preview(task, latest)
+        pointcloud_preview = _extract_pointcloud_preview(task, preview_ann)
     return {
         "id": task.id,
         "project_id": task.project_id,
@@ -391,13 +438,15 @@ def get_review_task_detail(
         "height": data.get("height"),
         "assignee_name": task.assignee.username if task.assignee else None,
         "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
-        "annotations2d": _extract_preview_boxes(latest),
+        "annotations2d": _extract_preview_boxes(preview_ann),
         "embodied_preview": embodied_preview,
         "modality_preview": modality_preview,
         "pointcloud_preview": pointcloud_preview,
         "is_golden": bool(task.is_golden),
-        "annotation_id": latest.id if latest else None,
-        "work_time": latest.work_time if latest else task.work_time,
+        "annotation_id": preview_ann.id if preview_ann else None,
+        "canonical_annotation_id": getattr(task, "canonical_annotation_id", None),
+        "versions": versions,
+        "work_time": preview_ann.work_time if preview_ann else task.work_time,
         "last_reject_feedback": (task.task_metadata or {}).get("last_reject_feedback"),
     }
 
@@ -429,11 +478,23 @@ def review_task(
         decision=request.decision,
         score=request.score,
         feedback=request.feedback,
+        canonical_annotation_id=request.canonical_annotation_id,
     )
     if not success:
+        versions = [a for a in (task.annotations or []) if getattr(a, "is_latest", True)]
+        if (
+            request.decision == "approved"
+            and len(versions) > 1
+            and not request.canonical_annotation_id
+            and not getattr(task, "canonical_annotation_id", None)
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="多人共标任务通过时请指定 canonical_annotation_id（导出真源）",
+            )
         raise HTTPException(
             status_code=400,
-            detail="审核失败：任务状态不可审核（需为已提交/审核中）",
+            detail="审核失败：任务状态不可审核（需为已提交/审核中）或真源标注无效",
         )
 
     db.refresh(task)

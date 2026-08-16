@@ -49,6 +49,14 @@ def task_image_size(task: Any, payload: Optional[Dict[str, Any]] = None) -> Tupl
 
 
 def primary_payload(task: Any) -> Dict[str, Any]:
+    """导出真源：优先 canonical_annotation_id，否则首个非空 is_latest。"""
+    cid = getattr(task, "canonical_annotation_id", None)
+    if cid:
+        for ann in task.annotations or []:
+            if getattr(ann, "id", None) == cid:
+                payload = ann_payload(ann)
+                if payload:
+                    return payload
     for ann in latest_anns(task):
         payload = ann_payload(ann)
         if payload:
@@ -131,7 +139,11 @@ def dumps_jsonl(rows: Iterable[Dict[str, Any]]) -> bytes:
 
 def extract_boxes2d(task: Any) -> List[Dict[str, Any]]:
     boxes: List[Dict[str, Any]] = []
-    for ann in latest_anns(task):
+    cid = getattr(task, "canonical_annotation_id", None)
+    anns = latest_anns(task)
+    if cid:
+        anns = [a for a in (task.annotations or []) if getattr(a, "id", None) == cid] or anns
+    for ann in anns:
         boxes.extend(iter_frame_boxes(ann_payload(ann)))
     return boxes
 
@@ -139,7 +151,11 @@ def extract_boxes2d(task: Any) -> List[Dict[str, Any]]:
 def extract_boxes3d(task: Any) -> List[Dict[str, Any]]:
     """统一 boxes3d session 与 CRUD cuboid。"""
     out: List[Dict[str, Any]] = []
-    for ann in latest_anns(task):
+    cid = getattr(task, "canonical_annotation_id", None)
+    anns = latest_anns(task)
+    if cid:
+        anns = [a for a in (task.annotations or []) if getattr(a, "id", None) == cid] or anns
+    for ann in anns:
         payload = ann_payload(ann)
         session = payload.get("session") if isinstance(payload.get("session"), dict) else payload
         boxes = []

@@ -54,7 +54,11 @@ class Annotation(Base, TimestampMixin):
     
     # 关联关系
     task_id: Mapped[int] = mapped_column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
-    task: Mapped["Task"] = relationship("Task", back_populates="annotations")
+    task: Mapped["Task"] = relationship(
+        "Task",
+        back_populates="annotations",
+        foreign_keys=[task_id],
+    )
     
     # 关联的数据项ID（文本ID、图片ID、点云文件名等）
     data_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

@@ -13,11 +13,12 @@ except ImportError:
     Base = declarative_base()
     
 # 创建数据库引擎
+_pool = getattr(settings, "DATABASE_POOL_SIZE", 20) or 20
 engine = create_engine(
     str(settings.DATABASE_URL),  # Pydantic v2 需要转换为字符串
     pool_pre_ping=True,  # 自动检测断开的连接
-    pool_size=10,
-    max_overflow=20,
+    pool_size=int(_pool),
+    max_overflow=max(20, int(_pool)),
 )
 
 # 创建会话工厂

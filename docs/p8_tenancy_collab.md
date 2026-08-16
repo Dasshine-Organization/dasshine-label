@@ -9,7 +9,7 @@ P7 已收口质控盲测与点云审核。本迭代落地租户隔离与轻量�
 | **P8-1** | `organizations` / `organization_members`；`projects.organization_id`；列表按当前组织过滤 | ✅ |
 | **P8-2** | 任务标注占用锁（心跳 + 过期）；工作台提示他人占用 | ✅ |
 
-**明确不做（P9）：** Yjs/Automerge CRDT 实时共编、计费/配额、完整黄金题轮换调度器。
+**明确不做（P10）：** Yjs/Automerge CRDT 实时共编、计费/配额、完整黄金题轮换调度器。
 
 ## 数据模型
 

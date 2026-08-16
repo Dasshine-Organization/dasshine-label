@@ -425,14 +425,17 @@ class QualityControlService:
         reviewer_id: int,
         decision: str,  # 'approved' | 'rejected'
         score: float = None,
-        feedback: str = None
+        feedback: str = None,
+        canonical_annotation_id: str = None,
     ) -> bool:
         """
         审核任务。
 
-        - approved → APPROVED
+        - approved → APPROVED（可写 canonical_annotation_id）
         - rejected → ANNOTATING（驳回回流标注，保留原 assignee）
         """
+        from app.services.consensus import latest_annotations, set_canonical
+
         task = self.db.query(Task).filter(Task.id == task_id).first()
         if not task:
             return False
@@ -448,6 +451,23 @@ class QualityControlService:
 
         if decision not in ("approved", "rejected"):
             return False
+
+        versions = latest_annotations(task)
+        if decision == "approved":
+            chosen = canonical_annotation_id
+            if not chosen:
+                if len(versions) == 1:
+                    chosen = versions[0].id
+                elif getattr(task, "canonical_annotation_id", None):
+                    chosen = task.canonical_annotation_id
+                elif len(versions) > 1:
+                    logger.warning(
+                        "review_task refused: task %s needs canonical_annotation_id",
+                        task_id,
+                    )
+                    return False
+            if chosen and not set_canonical(self.db, task, chosen):
+                return False
 
         # 创建审核记录
         review = Review(

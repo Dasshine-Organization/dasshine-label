@@ -72,6 +72,20 @@ type ReviewDetail = {
     boxes3d?: Array<Record<string, unknown>>
     box_count?: number
   } | null
+  annotation_id?: string
+  canonical_annotation_id?: string | null
+  versions?: Array<{
+    annotation_id: string
+    annotator_id?: number
+    annotator_name?: string | null
+    updated_at?: string | null
+    work_time?: number
+    annotations2d?: ReviewDetail['annotations2d']
+    modality_preview?: ReviewDetail['modality_preview']
+    pointcloud_preview?: ReviewDetail['pointcloud_preview']
+    embodied_preview?: ReviewDetail['embodied_preview']
+    is_canonical?: boolean
+  }>
   last_reject_feedback?: string
 }
 
@@ -142,6 +156,7 @@ export default function ReviewQueue() {
   const [detail, setDetail] = useState<ReviewDetail | null>(null)
   const [feedback, setFeedback] = useState('')
   const [acting, setActing] = useState(false)
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
 
   useEffect(() => {
@@ -175,6 +190,14 @@ export default function ReviewQueue() {
         if (!cancelled) {
           setDetail(data)
           setFeedback('')
+          const versions = (data.versions || []) as ReviewDetail['versions']
+          const initial =
+            data.canonical_annotation_id ||
+            versions?.find(v => v.is_canonical)?.annotation_id ||
+            versions?.[0]?.annotation_id ||
+            data.annotation_id ||
+            null
+          setSelectedVersionId(initial ? String(initial) : null)
           setImgSize({
             w: Number(data.width) || 0,
             h: Number(data.height) || 0,
@@ -198,10 +221,32 @@ export default function ReviewQueue() {
     [projectFilter],
   )
 
+  const view = useMemo(() => {
+    if (!detail) return null
+    const versions = detail.versions || []
+    if (!versions.length || !selectedVersionId) return detail
+    const v = versions.find(x => String(x.annotation_id) === String(selectedVersionId))
+    if (!v) return detail
+    return {
+      ...detail,
+      annotations2d: v.annotations2d ?? detail.annotations2d,
+      modality_preview: v.modality_preview ?? detail.modality_preview,
+      pointcloud_preview: v.pointcloud_preview ?? detail.pointcloud_preview,
+      embodied_preview: v.embodied_preview ?? detail.embodied_preview,
+      annotation_id: v.annotation_id,
+      assignee_name: v.annotator_name ?? detail.assignee_name,
+    }
+  }, [detail, selectedVersionId])
+
   async function decide(decision: 'approved' | 'rejected') {
     if (!selectedId) return
     if (decision === 'rejected' && !feedback.trim()) {
       message.warning('驳回请填写反馈意见')
+      return
+    }
+    const versions = detail?.versions || []
+    if (decision === 'approved' && versions.length > 1 && !selectedVersionId) {
+      message.warning('多人共标请先选定导出真源版本')
       return
     }
     setActing(true)
@@ -210,10 +255,13 @@ export default function ReviewQueue() {
         task_id: selectedId,
         decision,
         feedback: feedback.trim() || undefined,
+        canonical_annotation_id:
+          decision === 'approved' ? selectedVersionId || undefined : undefined,
       })
       message.success(data.message ?? (decision === 'approved' ? '已通过' : '已驳回'))
       setSelectedId(null)
       setDetail(null)
+      setSelectedVersionId(null)
       await load()
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -297,7 +345,7 @@ export default function ReviewQueue() {
         </aside>
 
         <section className="lg:col-span-8 bg-[#12121a] border border-[#1e1e2e] rounded-xl overflow-hidden flex flex-col">
-          {!detail ? (
+          {!view ? (
             <div className="flex-1 flex items-center justify-center text-xs text-white/30">
               选择左侧任务开始审核
             </div>
@@ -306,10 +354,10 @@ export default function ReviewQueue() {
               <div className="px-4 py-3 border-b border-[#1e1e2e] flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-sm text-white/80">
-                    #{detail.id} · {detail.project_name}
+                    #{view.id} · {view.project_name}
                   </div>
                   <div className="text-[11px] text-white/35 mt-0.5">
-                    {detail.assignee_name ?? '—'} · {detail.filename ?? detail.data_url ?? ''}
+                    {view.assignee_name ?? '—'} · {view.filename ?? view.data_url ?? ''}
                   </div>
                 </div>
                 <button
@@ -321,39 +369,60 @@ export default function ReviewQueue() {
                 </button>
               </div>
 
+              {(detail?.versions?.length || 0) > 1 && (
+                <div className="px-4 py-2 border-b border-[#1e1e2e] flex flex-wrap gap-2 items-center">
+                  <span className="text-[10px] text-white/35">共标版本（通过时作为导出真源）</span>
+                  {detail!.versions!.map(v => (
+                    <button
+                      key={v.annotation_id}
+                      type="button"
+                      onClick={() => setSelectedVersionId(String(v.annotation_id))}
+                      className={`text-[11px] px-2.5 py-1 rounded-md border transition-colors ${
+                        String(selectedVersionId) === String(v.annotation_id)
+                          ? 'border-[#a78bfa] bg-[#a78bfa]/15 text-[#c4b5fd]'
+                          : 'border-[#1e1e2e] text-white/45 hover:text-white/70'
+                      }`}
+                    >
+                      {v.annotator_name || `annotator#${v.annotator_id}`}
+                      {v.is_canonical ? ' · 已定' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex-1 relative bg-[#0a0a0f] min-h-[280px] flex items-center justify-center overflow-hidden">
-                {detail.embodied_preview ? (
+                {view.embodied_preview ? (
                   <div className="w-full h-full p-4 overflow-y-auto space-y-3">
                     <div className="text-xs text-white/70 space-y-1">
                       <div>
                         <span className="text-white/35">指令：</span>
-                        {detail.embodied_preview.instruction || '（空）'}
+                        {view.embodied_preview.instruction || '（空）'}
                       </div>
                       <div>
                         <span className="text-white/35">结果：</span>
-                        {detail.embodied_preview.success || 'unknown'}
-                        {detail.embodied_preview.joints_source && (
+                        {view.embodied_preview.success || 'unknown'}
+                        {view.embodied_preview.joints_source && (
                           <span className="text-white/30 ml-2">
-                            · joints={detail.embodied_preview.joints_source}
+                            · joints={view.embodied_preview.joints_source}
                           </span>
                         )}
                       </div>
                       <div className="text-white/35">
-                        区间 {(detail.embodied_preview.segments || []).length} · 抓取{' '}
-                        {(detail.embodied_preview.grasps || []).length} · 轨迹点{' '}
-                        {detail.embodied_preview.trajectory_points ?? 0} · 偏好{' '}
-                        {detail.embodied_preview.preferences ?? 0}
+                        区间 {(view.embodied_preview.segments || []).length} · 抓取{' '}
+                        {(view.embodied_preview.grasps || []).length} · 轨迹点{' '}
+                        {view.embodied_preview.trajectory_points ?? 0} · 偏好{' '}
+                        {view.embodied_preview.preferences ?? 0}
                       </div>
-                      {detail.embodied_preview.quality && (
+                      {view.embodied_preview.quality && (
                         <div className="text-white/30 font-mono">
                           覆盖{' '}
-                          {((detail.embodied_preview.quality.segment_coverage ?? 0) * 100).toFixed(0)}%
-                          {detail.embodied_preview.quality.instruction_empty ? ' · 指令空' : ''}
+                          {((view.embodied_preview.quality.segment_coverage ?? 0) * 100).toFixed(0)}%
+                          {view.embodied_preview.quality.instruction_empty ? ' · 指令空' : ''}
                         </div>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      {(detail.embodied_preview.streams || []).map((s, i) => (
+                      {(view.embodied_preview.streams || []).map((s, i) => (
                         <div
                           key={s.id ?? i}
                           className="rounded-lg border border-[#1e1e2e] overflow-hidden bg-black aspect-video relative"
@@ -371,9 +440,9 @@ export default function ReviewQueue() {
                         </div>
                       ))}
                     </div>
-                    {(detail.embodied_preview.segments || []).length > 0 && (
+                    {(view.embodied_preview.segments || []).length > 0 && (
                       <div className="text-[11px] text-white/45 font-mono space-y-0.5">
-                        {(detail.embodied_preview.segments || []).slice(0, 8).map((s, i) => (
+                        {(view.embodied_preview.segments || []).slice(0, 8).map((s, i) => (
                           <div key={i}>
                             [{s.start_frame}–{s.end_frame}] {s.action_id}
                           </div>
@@ -381,76 +450,76 @@ export default function ReviewQueue() {
                       </div>
                     )}
                   </div>
-                ) : detail.pointcloud_preview ? (
+                ) : view.pointcloud_preview ? (
                   <div className="w-full h-full min-h-[320px]">
                     <Scene3DWorkspace
-                      taskId={String(detail.id)}
+                      taskId={String(view.id)}
                       pointCloudUrl={
-                        detail.pointcloud_preview.point_cloud_url || detail.data_url
+                        view.pointcloud_preview.point_cloud_url || view.data_url
                       }
                       readOnly
-                      boxesOverride={asReviewBoxes3d(detail.pointcloud_preview.boxes3d)}
+                      boxesOverride={asReviewBoxes3d(view.pointcloud_preview.boxes3d)}
                     />
                   </div>
-                ) : detail.modality_preview && !detail.data_url ? (
+                ) : view.modality_preview && !view.data_url ? (
                   <div className="w-full h-full p-4 overflow-y-auto text-xs text-white/70 space-y-2">
                     <div className="text-white/35 uppercase tracking-wider text-[10px]">
-                      {detail.modality_preview.modality || 'modality'} 预览
+                      {view.modality_preview.modality || 'modality'} 预览
                     </div>
-                    {detail.modality_preview.transcript && (
+                    {view.modality_preview.transcript && (
                       <div>
                         <span className="text-white/35">转写：</span>
-                        {detail.modality_preview.transcript}
+                        {view.modality_preview.transcript}
                       </div>
                     )}
-                    {detail.modality_preview.caption && (
+                    {view.modality_preview.caption && (
                       <div>
                         <span className="text-white/35">描述：</span>
-                        {detail.modality_preview.caption}
+                        {view.modality_preview.caption}
                       </div>
                     )}
-                    {detail.modality_preview.summary && (
+                    {view.modality_preview.summary && (
                       <div>
                         <span className="text-white/35">摘要：</span>
-                        {detail.modality_preview.summary}
+                        {view.modality_preview.summary}
                       </div>
                     )}
-                    {detail.modality_preview.sentiment && (
+                    {view.modality_preview.sentiment && (
                       <div>
                         <span className="text-white/35">情感：</span>
-                        {detail.modality_preview.sentiment}
+                        {view.modality_preview.sentiment}
                       </div>
                     )}
-                    {(detail.modality_preview.spans || []).length > 0 && (
+                    {(view.modality_preview.spans || []).length > 0 && (
                       <div className="font-mono space-y-0.5 text-white/50">
-                        {(detail.modality_preview.spans || []).slice(0, 20).map((s, i) => (
+                        {(view.modality_preview.spans || []).slice(0, 20).map((s, i) => (
                           <div key={s.id ?? i}>
                             [{s.label || 'span'}] {s.text || `${s.start}-${s.end}`}
                           </div>
                         ))}
                       </div>
                     )}
-                    {(detail.modality_preview.clips || []).length > 0 && (
+                    {(view.modality_preview.clips || []).length > 0 && (
                       <div className="font-mono space-y-0.5 text-white/50">
-                        {(detail.modality_preview.clips || []).slice(0, 12).map((c, i) => (
+                        {(view.modality_preview.clips || []).slice(0, 12).map((c, i) => (
                           <div key={i}>
                             [{c.start}–{c.end}] {c.label}
                           </div>
                         ))}
                       </div>
                     )}
-                    {detail.modality_preview.vqa?.question && (
+                    {view.modality_preview.vqa?.question && (
                       <div>
-                        Q: {detail.modality_preview.vqa.question}
+                        Q: {view.modality_preview.vqa.question}
                         <br />
-                        A: {detail.modality_preview.vqa.answer}
+                        A: {view.modality_preview.vqa.answer}
                       </div>
                     )}
                   </div>
-                ) : detail.data_url ? (
+                ) : view.data_url ? (
                   <div className="relative max-w-full max-h-[52vh]">
                     <img
-                      src={detail.data_url}
+                      src={view.data_url}
                       alt=""
                       className="max-h-[52vh] max-w-full object-contain"
                       onLoad={e => {
@@ -461,7 +530,7 @@ export default function ReviewQueue() {
                       }}
                     />
                     {imgSize.w > 0 &&
-                      detail.annotations2d.map((ann, i) => {
+                      view.annotations2d.map((ann, i) => {
                         const st = boxStyle(ann, imgSize.w, imgSize.h)
                         if (!st) return null
                         return (
@@ -473,9 +542,9 @@ export default function ReviewQueue() {
                           />
                         )
                       })}
-                    {detail.modality_preview?.modality === 'ocr' && (
+                    {view.modality_preview?.modality === 'ocr' && (
                       <div className="absolute bottom-2 left-2 right-2 text-[10px] text-white/70 bg-black/55 rounded px-2 py-1 max-h-16 overflow-y-auto">
-                        OCR {(detail.modality_preview.span_count ?? detail.modality_preview.spans?.length) || 0} 条
+                        OCR {(view.modality_preview.span_count ?? view.modality_preview.spans?.length) || 0} 条
                       </div>
                     )}
                   </div>
@@ -483,16 +552,16 @@ export default function ReviewQueue() {
                   <div className="text-xs text-white/30 p-8 text-center">
                     无预览图（非图像任务可在工作台查看标注）
                     <div className="mt-2 font-mono text-white/40">
-                      {detail.annotations2d.length} 条标注对象
+                      {view.annotations2d.length} 条标注对象
                     </div>
                   </div>
                 )}
               </div>
 
               <div className="p-4 border-t border-[#1e1e2e] space-y-3">
-                {detail.last_reject_feedback && (
+                {view.last_reject_feedback && (
                   <div className="text-[11px] text-[#f59e0b]/90 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-3 py-2">
-                    上次驳回：{detail.last_reject_feedback}
+                    上次驳回：{view.last_reject_feedback}
                   </div>
                 )}
                 <textarea

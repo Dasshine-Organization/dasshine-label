@@ -147,24 +147,45 @@ def get_available_tasks(
     """
     获取可领取的任务列表
     
-    标注员调用此接口查看可接的任务
+    标注员调用此接口查看可接的任务（默认按当前组织过滤）
     """
+    from app.models.project import Project
+    from app.services.organization_service import OrganizationService
     from app.services.project_service import _get_schema
 
     query = (
         db.query(Task)
         .options(joinedload(Task.project), joinedload(Task.assignee))
+        .join(Project, Project.id == Task.project_id)
         .filter(Task.status == TaskStatus.PENDING, Task.assignee_id.is_(None))
     )
 
     if project_id:
         query = query.filter(Task.project_id == project_id)
+    elif not current_user.is_admin:
+        org_svc = OrganizationService(db)
+        org_svc.ensure_personal_org(current_user)
+        if current_user.active_org_id:
+            query = query.filter(Project.organization_id == current_user.active_org_id)
 
-    tasks = query.order_by(Task.priority.desc()).limit(limit).all()
+    # 轻量黄金题优先：按项目 quality_config.golden_claim_ratio 概率把黄金题提到前面
+    tasks = query.order_by(Task.is_golden.desc(), Task.priority.desc()).limit(limit * 2).all()
+    prefer_golden: List[Task] = []
+    normal: List[Task] = []
+    import random
+
+    for t in tasks:
+        qc = (t.project.quality_config if t.project else None) or {}
+        ratio = float(qc.get("golden_claim_ratio") or 0)
+        if t.is_golden and ratio > 0 and random.random() < ratio:
+            prefer_golden.append(t)
+        else:
+            normal.append(t)
+    ordered = (prefer_golden + normal)[:limit]
 
     return [
         _task_list_item(task, _get_schema(task.project) if task.project else {})
-        for task in tasks
+        for task in ordered
     ]
 
 

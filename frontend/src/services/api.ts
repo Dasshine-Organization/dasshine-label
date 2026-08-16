@@ -376,6 +376,7 @@ export const qualityApi = {
     decision: 'approved' | 'rejected'
     score?: number
     feedback?: string
+    canonical_annotation_id?: string
   }) =>
     api.post<{ success: boolean; message: string; task_id: number; task_status: string }>(
       '/quality/review',

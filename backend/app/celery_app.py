@@ -37,9 +37,9 @@ celery_app.conf.update(
     # 任务结果过期时间
     result_expires=3600,
     
-    # 任务执行超时
-    task_time_limit=300,  # 5分钟
-    task_soft_time_limit=240,  # 4分钟警告
+    # 任务执行超时（大包导出可超过 5 分钟）
+    task_time_limit=1800,  # 30 分钟
+    task_soft_time_limit=1500,
     
     # 并发配置
     worker_prefetch_multiplier=1,
@@ -53,10 +53,5 @@ celery_app.conf.beat_schedule = {
     "check-timeout-tasks": {
         "task": "app.tasks.quality_tasks.check_timeout_tasks",
         "schedule": 300.0,  # 5分钟
-    },
-    # 每小时清理过期缓存
-    "cleanup-cache": {
-        "task": "app.tasks.maintenance_tasks.cleanup_cache",
-        "schedule": 3600.0,  # 1小时
     },
 }
