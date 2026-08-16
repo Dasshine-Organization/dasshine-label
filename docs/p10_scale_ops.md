@@ -20,6 +20,6 @@ P9 收口了共识裁决与索引。本迭代补齐大规模运维缺口；**完
 
 ## 运维
 
-- Worker：`celery -A app.celery_app worker`
-- Beat：`celery -A app.celery_app beat`（超时回收 + 黄金轮换）
+- Compose **默认**启动 `celery` + `celery-beat`（`./deploy.sh up` / `dev`）
+- 异步导出经 `FileStorageService`：local 或 S3（与导入同配置）
 - 迁移：`alembic upgrade head`（`20260816_p10_ops`）

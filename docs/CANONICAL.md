@@ -91,4 +91,6 @@
 - 异步导入：`POST …/import/zip|yolo/jobs` + `GET /projects/import-jobs/{id}`（大 ZIP 自动后台）
 - 组织配额：`organizations.quota`；`GET/PUT /orgs/{id}/quota`；创建项目/导入前校验
 - 黄金题轮换：`quality_config.golden_rotation` + Celery beat `rotate_golden_tasks`
+- 作业/存储硬化：Compose **默认**起 `celery` + `celery-beat`；异步导出经 `FileStorageService`（local/S3）
+- 租户硬隔离：`claim` / `GET /tasks` PENDING 池 / 审核队列按 `active_org`；`GET /projects/{id}` 须组织成员或创建者
 - **P11：** 完整 CRDT / Yjs 共编、计费扣款、目录挂载

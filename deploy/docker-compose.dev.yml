@@ -67,6 +67,70 @@ services:
     depends_on:
       - backend
 
+  celery:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: dasshine-celery-dev
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dasshine}:${POSTGRES_PASSWORD:-dasshine123}@db:5432/${POSTGRES_DB:-dasshine_label}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      DEBUG: "true"
+      UPLOAD_DIR: /app/uploads
+      FILE_SERVER_BASE_URL: http://localhost:8000
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_PREFIX: ${S3_PREFIX:-dasshine}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_VERIFY_SSL: ${S3_VERIFY_SSL:-true}
+    volumes:
+      - ../backend/app:/app/app
+      - upload_data_dev:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: ["celery", "-A", "app.celery_app", "worker", "--loglevel=info"]
+
+  celery-beat:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: dasshine-celery-beat-dev
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dasshine}:${POSTGRES_PASSWORD:-dasshine123}@db:5432/${POSTGRES_DB:-dasshine_label}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key}
+      DEBUG: "true"
+      UPLOAD_DIR: /app/uploads
+      FILE_SERVER_BASE_URL: http://localhost:8000
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_PREFIX: ${S3_PREFIX:-dasshine}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_VERIFY_SSL: ${S3_VERIFY_SSL:-true}
+    volumes:
+      - ../backend/app:/app/app
+      - upload_data_dev:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    command: ["celery", "-A", "app.celery_app", "beat", "--loglevel=info"]
+
 volumes:
   postgres_data_dev:
   upload_data_dev:

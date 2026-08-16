@@ -340,15 +340,27 @@ def list_review_queue(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """待审核队列：submitted / reviewing。"""
+    """待审核队列：submitted / reviewing（按当前组织收窄）。"""
+    from app.models.project import Project
+    from app.services.org_scope import ensure_active_org_id
+
     q = (
         db.query(Task)
         .options(joinedload(Task.project), joinedload(Task.assignee), joinedload(Task.annotations))
+        .join(Project, Project.id == Task.project_id)
         .filter(Task.status.in_([TaskStatus.SUBMITTED, TaskStatus.REVIEWING]))
         .order_by(Task.submitted_at.desc(), Task.id.desc())
     )
     if project_id:
         q = q.filter(Task.project_id == project_id)
+
+    active_org = ensure_active_org_id(db, current_user)
+    if not current_user.is_admin:
+        if active_org is None:
+            return {"total": 0, "items": []}
+        q = q.filter(Project.organization_id == active_org)
+    elif active_org is not None:
+        q = q.filter(Project.organization_id == active_org)
 
     rows = q.limit(limit * 3).all()  # 多取后按权限过滤
     items: List[Dict[str, Any]] = []

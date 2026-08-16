@@ -95,17 +95,30 @@ def list_tasks(
     """
     获取任务列表
     
-    - 管理员：查看所有任务
-    - 标注员：查看自己相关的任务
+    - 管理员：查看所有任务（有 active_org 时按组织收窄）
+    - 标注员：自己的任务 + 当前组织下可领取的 PENDING
     """
-    query = db.query(Task).options(
-        joinedload(Task.project),
-        joinedload(Task.assignee),
+    from app.services.org_scope import ensure_active_org_id
+
+    query = (
+        db.query(Task)
+        .options(
+            joinedload(Task.project),
+            joinedload(Task.assignee),
+        )
+        .join(Project, Project.id == Task.project_id)
     )
 
-    # 非管理员：自己的任务（含交叉共标）+ 可领取的待分派任务
+    active_org = ensure_active_org_id(db, current_user)
+
+    # 非管理员：自己的任务（含交叉共标）+ 当前组织可领取的待分派任务
     if not current_user.is_admin:
         uid = current_user.id
+        pending_org = (Task.status == TaskStatus.PENDING) & (Task.assignee_id.is_(None))
+        if active_org is not None:
+            pending_org = pending_org & (Project.organization_id == active_org)
+        else:
+            pending_org = pending_org & False  # 无组织则不可见公共池
         query = query.filter(
             or_(
                 Task.assignee_id == uid,
@@ -115,9 +128,11 @@ def list_tasks(
                 text(
                     "(tasks.metadata->'co_assignee_ids') @> to_jsonb(:cuid::int)"
                 ).bindparams(cuid=uid),
-                (Task.status == TaskStatus.PENDING) & (Task.assignee_id.is_(None)),
+                pending_org,
             )
         )
+    elif active_org is not None:
+        query = query.filter(Project.organization_id == active_org)
     
     # 筛选条件
     if project_id:
@@ -242,8 +257,9 @@ def claim_task(
     """
     领取任务
     
-    标注员主动领取待分配任务
+    标注员主动领取待分配任务（须属于当前组织）
     """
+    from app.services.org_scope import project_visible_in_active_org
     from app.services.project_service import _get_schema
 
     task = (
@@ -254,6 +270,12 @@ def claim_task(
     )
     if not task:
         raise_not_found("任务不存在")
+
+    if not task.project or not project_visible_in_active_org(db, task.project, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="无权领取其他组织的任务",
+        )
 
     if task.status != TaskStatus.PENDING or task.assignee_id:
         raise_bad_request("任务已被领取或不可领取")

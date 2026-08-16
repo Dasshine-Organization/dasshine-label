@@ -18,15 +18,15 @@ usage() {
 用法: ./deploy.sh <命令> [选项]
 
 命令:
-  up          构建并启动生产栈（Nginx + API + PostgreSQL + Redis）
-  dev         启动开发栈（Vite :3000 + API 热重载 :8000）
+  up          构建并启动生产栈（Nginx + API + PostgreSQL + Redis + Celery worker/beat）
+  dev         启动开发栈（Vite :3000 + API 热重载 :8000 + Celery）
   down        停止并移除容器（保留数据卷）
   down -v     停止并删除数据卷（清空数据库与上传文件）
   build       仅构建镜像
   logs        查看日志（可跟服务名，如 logs backend）
   ps          查看容器状态
   restart     重启服务
-  worker      启动 Celery Worker（需生产栈已运行）
+  worker      单独重启 Celery Worker / Beat（生产栈）
 
 示例:
   ./deploy.sh up -d
@@ -109,8 +109,8 @@ case "$cmd" in
     ;;
   worker)
     ensure_env
-    green "启动 Celery Worker（profile: worker）..."
-    compose --profile worker up -d celery "$@"
+    green "重启 Celery Worker / Beat..."
+    compose up -d celery celery-beat "$@"
     ;;
   help|-h|--help|"")
     usage

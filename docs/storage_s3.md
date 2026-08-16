@@ -11,6 +11,8 @@ STORAGE_BACKEND=s3   # 默认 local
 `local`：写入 `UPLOAD_DIR`，`data_url = {FILE_SERVER_BASE_URL}/uploads/...`  
 `s3`：`put_object` 到桶，`data_url = {S3_PUBLIC_BASE_URL}/{key}`
 
+导入与**异步导出**共用 `FileStorageService`（导出子目录 `exports`）。
+
 ## 环境变量
 
 | 变量 | 说明 |

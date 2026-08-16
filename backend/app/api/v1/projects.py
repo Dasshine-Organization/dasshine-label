@@ -228,15 +228,14 @@ def list_project_tasks(
     current_user: User = Depends(get_current_user),
 ):
     """列出项目下已导入的任务（含预览 URL）"""
-    from app.services.project_acl import can_administrate_project, get_project_member
+    from app.services.org_scope import user_can_access_org_project
     from app.services.project_service import _get_schema
     from app.services.task_serializer import task_list_item
 
     project = ProjectService(db).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
-    is_member = get_project_member(db, project_id, current_user.id) is not None
-    if not (current_user.is_admin or can_administrate_project(db, project, current_user) or is_member):
+    if not user_can_access_org_project(db, project, current_user):
         raise HTTPException(status_code=403, detail="无权查看该项目")
 
     query = (
@@ -267,11 +266,15 @@ def list_project_tasks(
 def get_project(
     project_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
+    from app.services.org_scope import user_can_access_org_project
+
     project = ProjectService(db).get(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
+    if not user_can_access_org_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权查看该项目")
     return _to_out(project)
 
 

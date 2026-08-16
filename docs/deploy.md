@@ -39,6 +39,17 @@ chmod +x deploy.sh
 - 响应头：`X-Request-ID`
 - 导入失败：`dataset_import_failed` 警告日志，API 返回 `errors[]` + `error_count`
 
+## Celery（默认启用）
+
+`./deploy.sh up` / `./deploy.sh dev` 会同时启动：
+
+- `celery`：异步导出、异步 ZIP/YOLO 导入
+- `celery-beat`：超时任务回收、黄金题轮换
+
+单独重启：`./deploy.sh worker`
+
+异步导出产物经 `FileStorageService` 写入：`STORAGE_BACKEND=local` 落在 `UPLOAD_DIR/projects/{id}/exports/`；`s3` 则 `put_object` 到桶并返回公网 `download_url`。
+
 ## 冒烟测试
 
 ```bash
@@ -48,4 +59,8 @@ cd backend
 
 ## S3 兼容存储
 
-见 [`docs/storage_s3.md`](./storage_s3.md)。`STORAGE_BACKEND=s3` 时导入写入对象桶；`/ready` 会探测 bucket。
+见 [`docs/storage_s3.md`](./storage_s3.md)。`STORAGE_BACKEND=s3` 时：
+
+- 数据集导入写入对象桶
+- **异步导出**同样写入对象桶（与导入共用 `FileStorageService`）
+- `/ready` 会探测 bucket

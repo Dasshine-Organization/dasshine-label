@@ -141,7 +141,7 @@ chmod +x deploy.sh
 ```bash
 ./deploy.sh ps              # 查看状态
 ./deploy.sh logs -f backend # 后端日志
-./deploy.sh worker          # 可选：启动 Celery
+./deploy.sh worker          # 重启 Celery worker/beat（up/dev 已默认启动）
 ./deploy.sh down            # 停止
 ./deploy.sh down -v         # 停止并清空数据卷（慎用）
 ```
@@ -188,11 +188,14 @@ npm run dev
 
 浏览器打开 http://localhost:3000 。
 
-### Celery（可选）
+### Celery（Compose 默认启用）
+
+`./deploy.sh up` / `./deploy.sh dev` 已包含 worker + beat。本地裸跑也可：
 
 ```bash
 cd backend
 celery -A app.celery_app worker --loglevel=info
+celery -A app.celery_app beat --loglevel=info
 ```
 
 ---

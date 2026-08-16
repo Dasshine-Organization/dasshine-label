@@ -1,21 +1,21 @@
 """
 数据导出任务（调用与 HTTP 相同的 exporters registry）。
+产物经 FileStorageService 落盘：local → UPLOAD_DIR；s3 → 对象桶。
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from pathlib import Path
 
 from celery import shared_task
 from sqlalchemy.orm import joinedload
 
-from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.project import Project
 from app.models.task import Task, TaskStatus
 from app.services.exporters import build_export, default_format_for
+from app.services.file_storage import FileStorageService
 from app.services.project_service import _get_schema, _resolve_project_category
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @shared_task(bind=True, max_retries=2)
 def export_project_data(self, project_id: int, format: str, user_id: int, status: str = "approved"):
-    """异步导出项目数据到 UPLOAD_DIR/exports。"""
+    """异步导出项目数据，写入统一存储并返回公网 download_url。"""
     db = SessionLocal()
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
@@ -59,27 +59,33 @@ def export_project_data(self, project_id: int, format: str, user_id: int, status
             label_classes if isinstance(label_classes, list) else [],
         )
 
-        out_dir = Path(settings.UPLOAD_DIR) / "exports"
-        out_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in project.name)[:40]
         filename = f"{safe}_{timestamp}{artifact.filename_suffix}"
-        path = out_dir / filename
-        path.write_bytes(artifact.content)
+
+        storage = FileStorageService()
+        rel_or_key, download_url = storage.save_bytes(
+            project_id,
+            filename,
+            artifact.content,
+            subdir="exports",
+        )
 
         logger.info(
-            "export done project=%s format=%s user=%s path=%s",
+            "export done project=%s format=%s user=%s backend=%s url=%s",
             project_id,
             fmt,
             user_id,
-            path,
+            storage.backend_name,
+            download_url,
         )
         return {
             "project_id": project_id,
             "format": fmt,
             "category": category,
-            "path": str(path),
-            "download_url": f"/uploads/exports/{filename}",
+            "path": rel_or_key,
+            "download_url": download_url,
+            "storage_backend": storage.backend_name,
             "status": "completed",
             "bytes": len(artifact.content),
         }
