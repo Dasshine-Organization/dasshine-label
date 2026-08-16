@@ -26,16 +26,21 @@ export default function ProjectQualityPanel({ projectId }: Props) {
   } | null>(null)
   const [editId, setEditId] = useState<number | null>(null)
   const [answerJson, setAnswerJson] = useState('{\n  \n}')
+  const [rotationOn, setRotationOn] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [g, r] = await Promise.all([
+      const [g, r, qc] = await Promise.all([
         projectApi.getGoldenTasks(projectId),
         qualityApi.getReport(projectId).catch(() => ({ data: null })),
+        projectApi.getQualityConfig(projectId).catch(() => ({ data: null })),
       ])
       setItems(g.data?.items ?? [])
       setReport(r.data as typeof report)
+      const cfg = (qc.data?.quality_config || {}) as Record<string, unknown>
+      setRotationOn(Boolean(cfg.golden_rotation))
+      if (typeof cfg.golden_ratio === 'number') setRatio(Number(cfg.golden_ratio))
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail ?? '加载质控失败')
@@ -56,6 +61,21 @@ export default function ProjectQualityPanel({ projectId }: Props) {
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail ?? '插入失败（需管理员）')
+    }
+  }
+
+  async function toggleRotation(next: boolean) {
+    try {
+      await projectApi.updateQualityConfig(projectId, {
+        golden_rotation: next,
+        golden_ratio: ratio,
+        golden_claim_ratio: ratio,
+      })
+      setRotationOn(next)
+      message.success(next ? '已开启黄金题定时轮换' : '已关闭定时轮换')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail ?? '更新失败')
     }
   }
 
@@ -144,6 +164,16 @@ export default function ProjectQualityPanel({ projectId }: Props) {
               插入黄金题
             </button>
           </div>
+
+          <label className="flex items-center gap-2 text-[11px] text-white/50 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={rotationOn}
+              onChange={e => void toggleRotation(e.target.checked)}
+              className="rounded border-[#1e1e2e]"
+            />
+            定时轮换（Celery beat 每小时维持比例）
+          </label>
 
           <div className="text-[10px] text-white/30">
             标注员工作台不会看到黄金标记（盲测）。专家在此编辑标准答案。

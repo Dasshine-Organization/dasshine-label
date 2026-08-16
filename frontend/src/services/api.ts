@@ -85,6 +85,9 @@ export const orgApi = {
   getMembers: (orgId: number) => api.get(`/orgs/${orgId}/members`),
   addMember: (orgId: number, data: { user_id: number; role?: string }) =>
     api.post(`/orgs/${orgId}/members`, data),
+  getQuota: (orgId: number) => api.get(`/orgs/${orgId}/quota`),
+  updateQuota: (orgId: number, data: { max_projects?: number; max_tasks?: number; max_members?: number }) =>
+    api.put(`/orgs/${orgId}/quota`, data),
 }
 
 // 项目相关 API
@@ -162,6 +165,14 @@ export const projectApi = {
         filename?: string
       }>
     }>(`/projects/${projectId}/golden-tasks`),
+
+  getQualityConfig: (projectId: number) =>
+    api.get<{ project_id: number; quality_config: Record<string, unknown> }>(
+      `/projects/${projectId}/quality-config`,
+    ),
+
+  updateQualityConfig: (projectId: number, config: Record<string, unknown>) =>
+    api.put(`/projects/${projectId}/quality-config`, config),
 }
 
 // 任务相关 API

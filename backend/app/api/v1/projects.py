@@ -176,7 +176,10 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = ProjectService(db).create(payload, current_user.id)
+    try:
+        project = ProjectService(db).create(payload, current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
     return _to_out(project)
 
 
@@ -450,6 +453,46 @@ def list_golden_tasks(
             row["golden_answer"] = ans
         items.append(row)
     return {"project_id": project_id, "total": len(items), "items": items}
+
+
+@router.get("/{project_id}/quality-config")
+def get_quality_config(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user) and not can_review_project(
+        db, project, current_user
+    ):
+        raise HTTPException(status_code=403, detail="无权查看")
+    return {"project_id": project_id, "quality_config": project.quality_config or {}}
+
+
+@router.put("/{project_id}/quality-config")
+def put_quality_config(
+    project_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """合并更新 quality_config（如 golden_rotation / golden_ratio）。"""
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权修改")
+    current = dict(project.quality_config or {})
+    patch = body if isinstance(body, dict) else {}
+    # 允许嵌套在 quality_config 键下
+    if "quality_config" in patch and isinstance(patch["quality_config"], dict):
+        patch = patch["quality_config"]
+    current.update({k: v for k, v in patch.items() if k != "quality_config"})
+    project.quality_config = current
+    db.commit()
+    return {"project_id": project_id, "quality_config": project.quality_config}
 
 
 @router.get("/{project_id}/members")

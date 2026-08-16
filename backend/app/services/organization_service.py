@@ -69,7 +69,16 @@ class OrganizationService:
         while self.db.query(Organization).filter(Organization.slug == candidate).first():
             candidate = f"{base}-{i}"[:80]
             i += 1
-        org = Organization(name=name.strip() or candidate, slug=candidate, created_by_id=creator.id)
+        org = Organization(
+            name=name.strip() or candidate,
+            slug=candidate,
+            created_by_id=creator.id,
+            quota={
+                "max_projects": 50,
+                "max_tasks": 100_000,
+                "max_members": 200,
+            },
+        )
         self.db.add(org)
         self.db.flush()
         self.db.add(
@@ -91,13 +100,19 @@ class OrganizationService:
         return self.create(f"{user.username} 的组织", user, slug=f"user-{user.id}")
 
     def add_member(self, org_id: int, user_id: int, role: str = "member") -> bool:
-        if not self.get(org_id):
+        from app.services.org_quota import check_can_add_member
+
+        org = self.get(org_id)
+        if not org:
             return False
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             return False
         if self.user_in_org(user_id, org_id):
             return True
+        ok, _msg = check_can_add_member(self.db, org)
+        if not ok:
+            return False
         self.db.add(
             OrganizationMember(organization_id=org_id, user_id=user_id, role=role or "member")
         )
@@ -136,10 +151,16 @@ class OrganizationService:
         return out
 
     @staticmethod
-    def to_dict(org: Organization) -> Dict[str, Any]:
-        return {
+    def to_dict(org: Organization, db: Optional[Session] = None) -> Dict[str, Any]:
+        from app.services.org_quota import normalize_quota, org_usage
+
+        payload: Dict[str, Any] = {
             "id": org.id,
             "name": org.name,
             "slug": org.slug,
             "created_by_id": org.created_by_id,
+            "quota": normalize_quota(getattr(org, "quota", None)),
         }
+        if db is not None:
+            payload["usage"] = org_usage(db, org.id)
+        return payload

@@ -1,4 +1,4 @@
-"""任务标注占用锁（心跳 + TTL）。"""
+/** 任务标注占用锁（心跳 + TTL）。 */
 
 import { useEffect, useState } from 'react'
 import { taskApi } from '../services/api'

@@ -87,6 +87,60 @@ def _check_project_access(project_id: int, current_user: User, db: Session):
     return project
 
 
+def _enforce_task_quota(db: Session, project, add_count: int = 1):
+    from app.services.org_quota import check_can_add_tasks
+
+    org = getattr(project, "organization", None)
+    if org is None and getattr(project, "organization_id", None):
+        from app.models.organization import Organization
+
+        org = db.query(Organization).filter(Organization.id == project.organization_id).first()
+    ok, msg = check_can_add_tasks(db, org, add_count=add_count)
+    if not ok:
+        raise HTTPException(403, msg)
+
+
+def _stage_upload(content: bytes, suffix: str = ".zip") -> str:
+    from pathlib import Path
+    import uuid
+
+    staging = Path(settings.UPLOAD_DIR) / "import_staging"
+    staging.mkdir(parents=True, exist_ok=True)
+    path = staging / f"{uuid.uuid4().hex}{suffix}"
+    path.write_bytes(content)
+    return str(path)
+
+
+@router.get("/import-jobs/{job_id}")
+def get_import_job_status(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """查询异步导入任务状态。"""
+    try:
+        from celery.result import AsyncResult
+        from app.celery_app import celery_app
+
+        result = AsyncResult(job_id, app=celery_app)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"无法查询导入任务（{e}）") from e
+
+    state = (result.state or "PENDING").upper()
+    payload = {
+        "job_id": job_id,
+        "state": state,
+        "ready": result.ready(),
+        "successful": result.successful() if result.ready() else None,
+    }
+    if result.successful():
+        data = result.result if isinstance(result.result, dict) else {}
+        payload.update({"status": "completed", **data})
+    elif result.failed():
+        payload["status"] = "failed"
+        payload["error"] = str(result.result)
+    return payload
+
+
 # ── URL import ────────────────────────────────────────────────────────────────
 
 @router.post("/{project_id}/import/urls")
@@ -169,7 +223,8 @@ async def import_zip(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_project_access(project_id, current_user, db)
+    project = _check_project_access(project_id, current_user, db)
+    _enforce_task_quota(db, project, add_count=1)
 
     content = await file.read()
     if not content:
@@ -187,6 +242,62 @@ async def import_zip(
         golden_ratio=golden_ratio,
     )
     return result.to_dict()
+
+
+@router.post("/{project_id}/import/zip/jobs")
+async def import_zip_job(
+    project_id: int,
+    file: UploadFile = File(...),
+    base_url_prefix: str = Form(""),
+    file_server_base_url: str = Form(""),
+    priority: int = Form(5),
+    golden_ratio: float = Form(0.05),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """异步 ZIP 导入：落盘后入队 Celery。"""
+    project = _check_project_access(project_id, current_user, db)
+    _enforce_task_quota(db, project, add_count=1)
+
+    content = await file.read()
+    if not content or not _is_zip_bytes(content, file.filename):
+        raise HTTPException(400, "请上传有效的 ZIP 压缩包（.zip）")
+    if len(content) > 500 * 1024 * 1024:
+        raise HTTPException(413, "File too large (max 500MB)")
+
+    staging = _stage_upload(content, ".zip")
+    try:
+        from app.tasks.import_tasks import import_project_archive
+
+        async_result = import_project_archive.delay(
+            project_id,
+            "zip",
+            staging,
+            current_user.id,
+            {
+                "base_url_prefix": base_url_prefix,
+                "file_server_base_url": file_server_base_url,
+                "priority": priority,
+                "golden_ratio": golden_ratio,
+            },
+        )
+    except Exception as e:
+        Path = __import__("pathlib").Path
+        try:
+            Path(staging).unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=503,
+            detail=f"后台导入不可用，请使用同步导入或启动 Celery/Redis（{e}）",
+        ) from e
+
+    return {
+        "job_id": async_result.id,
+        "status": "queued",
+        "project_id": project_id,
+        "kind": "zip",
+    }
 
 
 # ── COCO JSON ─────────────────────────────────────────────────────────────────
@@ -233,7 +344,8 @@ async def import_yolo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_project_access(project_id, current_user, db)
+    project = _check_project_access(project_id, current_user, db)
+    _enforce_task_quota(db, project, add_count=1)
 
     content = await file.read()
     if not content or not _is_zip_bytes(content, file.filename):
@@ -243,6 +355,60 @@ async def import_yolo(
     svc = _import_service(db, file_server_base_url)
     result = svc.import_yolo(project_id, content, classes, base_url_prefix, priority)
     return result.to_dict()
+
+
+@router.post("/{project_id}/import/yolo/jobs")
+async def import_yolo_job(
+    project_id: int,
+    file: UploadFile = File(...),
+    class_names: str = Form(""),
+    base_url_prefix: str = Form(""),
+    file_server_base_url: str = Form(""),
+    priority: int = Form(5),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    project = _check_project_access(project_id, current_user, db)
+    _enforce_task_quota(db, project, add_count=1)
+
+    content = await file.read()
+    if not content or not _is_zip_bytes(content, file.filename):
+        raise HTTPException(400, "请上传有效的 YOLO ZIP 压缩包")
+
+    staging = _stage_upload(content, ".zip")
+    try:
+        from app.tasks.import_tasks import import_project_archive
+
+        async_result = import_project_archive.delay(
+            project_id,
+            "yolo",
+            staging,
+            current_user.id,
+            {
+                "class_names": class_names,
+                "base_url_prefix": base_url_prefix,
+                "file_server_base_url": file_server_base_url,
+                "priority": priority,
+            },
+        )
+    except Exception as e:
+        from pathlib import Path
+
+        try:
+            Path(staging).unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=503,
+            detail=f"后台导入不可用，请使用同步导入或启动 Celery/Redis（{e}）",
+        ) from e
+
+    return {
+        "job_id": async_result.id,
+        "status": "queued",
+        "project_id": project_id,
+        "kind": "yolo",
+    }
 
 
 # ── CSV ───────────────────────────────────────────────────────────────────────

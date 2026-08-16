@@ -12,7 +12,7 @@ P8 完成组织与占用锁。产线审核显示：**多人共标已能收集，
 | **P9-2** | 可领任务按组织过滤；任务复合索引；连接池读配置；导出 Celery 时限放宽；清理坏 beat | ✅ |
 | **P9-3** | 轻量黄金题：available 按 `quality_config.golden_claim_ratio` 优先 | ✅ |
 
-**明确不做（P10）：** Yjs/Automerge CRDT、org 计费/配额、完整黄金题轮换调度器、异步导入队列。
+**明确不做（P11）：** Yjs/Automerge CRDT、org 计费扣款、完整对象存储目录挂载、异步导入以外的全量导入队列化。
 
 ## 数据
 

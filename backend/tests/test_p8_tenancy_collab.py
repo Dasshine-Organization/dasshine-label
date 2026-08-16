@@ -14,9 +14,14 @@ def test_slugify_basic():
 
 
 def test_org_to_dict():
-    org = SimpleNamespace(id=1, name="Acme", slug="acme", created_by_id=9)
+    org = SimpleNamespace(id=1, name="Acme", slug="acme", created_by_id=9, quota=None)
     d = OrganizationService.to_dict(org)
-    assert d == {"id": 1, "name": "Acme", "slug": "acme", "created_by_id": 9}
+    assert d["id"] == 1
+    assert d["name"] == "Acme"
+    assert d["slug"] == "acme"
+    assert d["created_by_id"] == 9
+    assert "quota" in d
+    assert d["quota"]["max_projects"] == 50
 
 
 def test_list_all_accepts_org_id_kw():

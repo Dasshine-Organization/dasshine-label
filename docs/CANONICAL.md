@@ -84,4 +84,11 @@
 - 审核：`versions[]` 并排；通过时写 `canonical_annotation_id`；导出 `primary_payload` 优先真源
 - 可领任务按组织过滤；任务复合索引；DB pool 读配置；Celery 导出时限 30m
 - 轻量黄金题：`quality_config.golden_claim_ratio` 优先插入 available 池
-- **P10：** 完整 CRDT / Yjs、计费配额、黄金题轮换调度器、异步导入
+
+## P10 规模化运维
+
+- 计划：`docs/p10_scale_ops.md`
+- 异步导入：`POST …/import/zip|yolo/jobs` + `GET /projects/import-jobs/{id}`（大 ZIP 自动后台）
+- 组织配额：`organizations.quota`；`GET/PUT /orgs/{id}/quota`；创建项目/导入前校验
+- 黄金题轮换：`quality_config.golden_rotation` + Celery beat `rotate_golden_tasks`
+- **P11：** 完整 CRDT / Yjs 共编、计费扣款、目录挂载

@@ -27,6 +27,20 @@ interface Props {
   onImported: () => void
 }
 
+async function pollImportJob(jobId: string, maxAttempts = 120): Promise<Record<string, unknown>> {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, 2000))
+    const { data } = await api.get(`/projects/import-jobs/${jobId}`)
+    if (data.ready && data.successful) {
+      return (data.result as Record<string, unknown>) || data
+    }
+    if (data.ready && data.successful === false) {
+      throw new Error((data.error as string) || '后台导入失败')
+    }
+  }
+  throw new Error('后台导入超时，请稍后在任务列表刷新查看')
+}
+
 // ─── Method config ────────────────────────────────────────────────────────────
 
 const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Element; color: string; forCategories?: string[] }[] = [
@@ -450,11 +464,23 @@ export default function DatasetImportModal({ projectId, projectName, category, o
         form.append('file_server_base_url', fileServerUrl.trim())
         form.append('priority', String(priority))
         form.append('golden_ratio', String(goldenRatio / 100))
-        const { data } = await api.post(`/projects/${projectId}/import/zip`, form, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 300_000,
-        })
-        res = data
+        // 大于 8MB 走后台导入，避免长请求超时
+        const useJob = file.size > 8 * 1024 * 1024
+        if (useJob) {
+          const { data: job } = await api.post(`/projects/${projectId}/import/zip/jobs`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 120_000,
+          })
+          const jobId = job.job_id as string
+          message.info('已提交后台导入，正在等待完成…')
+          res = await pollImportJob(jobId)
+        } else {
+          const { data } = await api.post(`/projects/${projectId}/import/zip`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 300_000,
+          })
+          res = data
+        }
 
       } else if (method === 'coco') {
         if (!file) throw new Error('请选择 COCO JSON 文件')
@@ -473,10 +499,19 @@ export default function DatasetImportModal({ projectId, projectName, category, o
         form.append('class_names', classNames)
         form.append('priority', String(priority))
         form.append('file_server_base_url', fileServerUrl.trim())
-        const { data } = await api.post(`/projects/${projectId}/import/yolo`, form, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        res = data
+        if (file.size > 8 * 1024 * 1024) {
+          const { data: job } = await api.post(`/projects/${projectId}/import/yolo/jobs`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            timeout: 120_000,
+          })
+          message.info('已提交后台 YOLO 导入，正在等待完成…')
+          res = await pollImportJob(job.job_id as string)
+        } else {
+          const { data } = await api.post(`/projects/${projectId}/import/yolo`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+          res = data
+        }
 
       } else if (method === 'csv') {
         if (!file) throw new Error('请选择 CSV 文件')

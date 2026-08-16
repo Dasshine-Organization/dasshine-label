@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -23,6 +23,8 @@ class Organization(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     created_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # 配额：max_projects / max_tasks / max_members
+    quota: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     members: Mapped[List["OrganizationMember"]] = relationship(
         "OrganizationMember", back_populates="organization", cascade="all, delete-orphan"

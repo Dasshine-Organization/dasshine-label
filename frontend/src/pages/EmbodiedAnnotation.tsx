@@ -322,9 +322,6 @@ export default function EmbodiedAnnotation() {
   const force = useMemo(() => forceWrenchForFrame(frame, totalFrames), [frame, totalFrames])
   const tactile = useMemo(() => tactileForFrame(frame, totalFrames), [frame, totalFrames])
   const trajAtFrame = trajectory.find(t => t.frame === frame)
-  const force = useMemo(() => forceWrenchForFrame(frame, totalFrames), [frame, totalFrames])
-  const tactile = useMemo(() => tactileForFrame(frame, totalFrames), [frame, totalFrames])
-  const trajAtFrame = trajectory.find(t => t.frame === frame)
 
   const seekAllToFrame = useCallback(
     (frameIdx: number) => {

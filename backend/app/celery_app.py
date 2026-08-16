@@ -20,6 +20,7 @@ celery_app = Celery(
         "app.tasks.auto_label_tasks",
         "app.tasks.export_tasks",
         "app.tasks.quality_tasks",
+        "app.tasks.import_tasks",
     ]
 )
 
@@ -53,5 +54,10 @@ celery_app.conf.beat_schedule = {
     "check-timeout-tasks": {
         "task": "app.tasks.quality_tasks.check_timeout_tasks",
         "schedule": 300.0,  # 5分钟
+    },
+    # 每小时维持黄金题比例（仅开启 golden_rotation 的项目）
+    "rotate-golden-tasks": {
+        "task": "app.tasks.quality_tasks.rotate_golden_tasks",
+        "schedule": 3600.0,
     },
 }

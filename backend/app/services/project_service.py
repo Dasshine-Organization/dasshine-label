@@ -157,9 +157,14 @@ class ProjectService:
         creator = self.db.query(User).filter(User.id == creator_id).first()
         if creator is not None:
             from app.services.organization_service import OrganizationService
+            from app.services.org_quota import check_can_add_project
 
             org = OrganizationService(self.db).ensure_personal_org(creator)
             org_id = creator.active_org_id or org.id
+            bound = OrganizationService(self.db).get(org_id) or org
+            ok, msg = check_can_add_project(self.db, bound)
+            if not ok:
+                raise ValueError(msg)
 
         project = Project(
             name=payload.name,
