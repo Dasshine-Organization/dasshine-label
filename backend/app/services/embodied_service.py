@@ -668,7 +668,7 @@ def build_export_json(
 
     streams = episode.get("streams") or []
     return {
-        "schema": "dasshine.embodied_sequence.v6",
+        "schema": "dasshine.embodied_sequence.v7",
         "task_id": get_task_ref(task),
         "task_db_id": task.id,
         "case_id": episode.get("case_id"),
@@ -688,8 +688,15 @@ def build_export_json(
         "action_labels": labels,
         "committed_frames": sorted(committed),
         "streams": [
-            {"id": s.get("id"), "label": s.get("label"), "src": s.get("src")}
+            {
+                "id": s.get("id"),
+                "label": s.get("label"),
+                "src": s.get("src"),
+                **({"intrinsics": s.get("intrinsics")} if s.get("intrinsics") else {}),
+                **({"extrinsics": s.get("extrinsics")} if s.get("extrinsics") else {}),
+            }
             for s in streams
+            if isinstance(s, dict)
         ],
         "attribution": episode.get("attribution"),
         "frames": frames_out,
@@ -1052,6 +1059,95 @@ def build_rlds_dataset_zip(docs: List[Dict[str, Any]], project_name: str) -> byt
     return buf.getvalue()
 
 
+def build_tfrecord_zip(docs: List[Dict[str, Any]], project_name: str) -> bytes:
+    """
+    TFRecord ZIP（无 TensorFlow）：
+    dataset_info.json
+    episodes/episode_XXXXXX.tfrecord
+    """
+    from app.services.exporters.tfrecord_lite import example_from_step, write_tfrecord_bytes
+
+    files: Dict[str, bytes] = {}
+    episode_ids = []
+    total_steps = 0
+    for i, doc in enumerate(docs):
+        ep_idx = int(doc.get("task_db_id") or i)
+        ep_name = f"episode_{ep_idx:06d}"
+        episode_ids.append(ep_name)
+        frames = doc.get("frames") or []
+        instruction = str(doc.get("instruction") or project_name)
+        success = str(doc.get("success") or "unknown")
+        reward_last = 1.0 if success == "success" else 0.0
+        examples = []
+        n = len(frames)
+        total_steps += n
+        for fi, fr in enumerate(frames):
+            if not isinstance(fr, dict):
+                continue
+            joints = fr.get("joints") or []
+            force = fr.get("force") if isinstance(fr.get("force"), dict) else {}
+            tactile = fr.get("tactile") if isinstance(fr.get("tactile"), dict) else {}
+            pads = tactile.get("pads") if isinstance(tactile.get("pads"), list) else []
+            action = fr.get("action") if isinstance(fr.get("action"), dict) else {}
+            step = {
+                "observation": {
+                    "state": [float(j.get("position_rad") or 0) for j in joints if isinstance(j, dict)],
+                    "torque": [float(j.get("torque_nm") or 0) for j in joints if isinstance(j, dict)],
+                    "force": [
+                        float(force.get("fx", 0) or 0),
+                        float(force.get("fy", 0) or 0),
+                        float(force.get("fz", 0) or 0),
+                        float(force.get("tx", 0) or 0),
+                        float(force.get("ty", 0) or 0),
+                        float(force.get("tz", 0) or 0),
+                    ],
+                    "tactile": [
+                        float(p.get("pressure", 0) or 0) for p in pads if isinstance(p, dict)
+                    ],
+                },
+                "action": {
+                    "label": action.get("id") or "idle",
+                    "label_text": action.get("label") or action.get("id") or "idle",
+                },
+                "reward": reward_last if fi == n - 1 else 0.0,
+                "discount": 1.0,
+                "is_first": fi == 0,
+                "is_last": fi == n - 1,
+                "language_instruction": instruction,
+                "timestamp": (fr.get("timestamp_ms") or 0) / 1000.0,
+            }
+            examples.append(example_from_step(step, episode_id=ep_name, step_index=fi))
+        files[f"episodes/{ep_name}.tfrecord"] = write_tfrecord_bytes(examples)
+        meta = {
+            "episode_id": ep_name,
+            "num_steps": n,
+            "success": success,
+            "language_instruction": instruction,
+            "streams": doc.get("streams") or [],
+            "segments": doc.get("segments") or [],
+            "grasps": doc.get("grasps") or [],
+        }
+        files[f"episodes/{ep_name}.meta.json"] = json.dumps(meta, ensure_ascii=False, indent=2).encode(
+            "utf-8"
+        )
+
+    info = {
+        "name": project_name or "dasshine_embodied",
+        "schema": "dasshine.tfrecord.v1",
+        "citation": "tf.Example TFRecord without TensorFlow dependency",
+        "total_episodes": len(docs),
+        "total_steps": total_steps,
+        "episodes": episode_ids,
+    }
+    files["dataset_info.json"] = json.dumps(info, ensure_ascii=False, indent=2).encode("utf-8")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
 def build_hdf5(
     task: Task,
     workspace: EmbodiedWorkspace,
@@ -1204,9 +1300,17 @@ def _try_policy_http(
     except Exception:
         return None
 
+    try:
+        from app.services.embodied_policy_weights import get_active_weight
+
+        active_weight = get_active_weight()
+    except Exception:
+        active_weight = None
+
     payload = {
         "task_id": task.id,
         "task_ref": get_task_ref(task),
+        "active_weight": active_weight,
         "episode": {
             "case_id": episode.get("case_id"),
             "project_name": episode.get("project_name"),

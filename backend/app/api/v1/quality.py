@@ -133,10 +133,18 @@ def _extract_embodied_preview(task: Task, ann: Optional[Annotation]) -> Optional
         "joints_source": payload.get("joints_source"),
         "force_source": payload.get("force_source"),
         "tactile_source": payload.get("tactile_source"),
+        "quality": _embodied_quality_preview(payload, data, ep),
         "streams": cams[:8],
         "fps": payload.get("fps") or ep.get("fps"),
         "total_frames": payload.get("frames") and len(payload.get("frames") or []) or ep.get("total_frames"),
     }
+
+
+def _embodied_quality_preview(payload, data, ep):
+    from app.services.embodied_quality import compute_embodied_quality
+
+    vla = data.get("embodied_vla") if isinstance(data.get("embodied_vla"), dict) else {}
+    return compute_embodied_quality(payload, vla=vla, episode=ep)
 
 
 @router.post("/quality/cross-validation", response_model=CrossValidationResponse)

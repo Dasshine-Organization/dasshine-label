@@ -10,6 +10,6 @@
 4. **外接策略 HTTP**：配置 `EMBODIED_POLICY_HTTP_*` 后，预标注优先调用外部服务；失败回退 demo 启发式
 5. **单测 + 文档**
 
-## 明确不做（P4+）
+## 明确不做（后续）
 
-原生 TFRecord / tensorflow-datasets 依赖、完整点云级 6DoF 手柄编辑器、策略模型本地推理权重托管。
+`tensorflow-datasets` 官方加载器、点云级场景编辑、本地 GPU 策略推理、异步超大包导出任务队列。

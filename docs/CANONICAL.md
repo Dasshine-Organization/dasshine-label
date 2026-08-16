@@ -48,3 +48,4 @@
 - 具身 P1：LeRobot dataset ZIP、抓取/轨迹、审核多机位预览 — `docs/embodied_p1.md`
 - 具身 P2：力觉/触觉、偏好对、parquet+本地视频打包、HDF5、策略预标注 — `docs/embodied_p2.md`
 - 具身 P3：RLDS-lite、远端视频下载、3D 抓取/轨迹面板、外接策略 HTTP — `docs/embodied_p3.md`
+- 具身 P4：TFRecord、6DoF 手柄、相机内外参、策略权重托管、质量摘要 — `docs/embodied_p4.md`

@@ -8,6 +8,22 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class CameraIntrinsicsSchema(BaseModel):
+    fx: float = 0.0
+    fy: float = 0.0
+    cx: float = 0.0
+    cy: float = 0.0
+    width: float = 0.0
+    height: float = 0.0
+
+
+class CameraExtrinsicsSchema(BaseModel):
+    position: Dict[str, float] = Field(default_factory=lambda: {"x": 0.0, "y": 0.0, "z": 0.0})
+    orientation: Dict[str, float] = Field(
+        default_factory=lambda: {"roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+    )
+
+
 class CameraStreamSchema(BaseModel):
     id: str
     label: str
@@ -15,6 +31,8 @@ class CameraStreamSchema(BaseModel):
     fallback_src: Optional[str] = None
     object_position: Optional[str] = None
     scale: Optional[float] = None
+    intrinsics: Optional[CameraIntrinsicsSchema] = None
+    extrinsics: Optional[CameraExtrinsicsSchema] = None
 
 
 class EmbodiedAttributionSchema(BaseModel):
@@ -116,7 +134,9 @@ class FramePatchBody(BaseModel):
 
 
 class EmbodiedExportRequest(BaseModel):
-    format: Literal["json", "torque_csv", "lerobot_jsonl", "lerobot_dataset", "hdf5", "rlds"] = "json"
+    format: Literal[
+        "json", "torque_csv", "lerobot_jsonl", "lerobot_dataset", "hdf5", "rlds", "tfrecord"
+    ] = "json"
 
 
 class EmbodiedSubmitBody(BaseModel):

@@ -67,7 +67,7 @@ def test_build_export_uses_vla_and_true_joints():
         "segments": [{"id": "s1", "start_frame": 0, "end_frame": 0, "action_id": "place"}],
     }
     doc = build_export_json(task, ws, state, ep)
-    assert doc["schema"] == "dasshine.embodied_sequence.v6"
+    assert doc["schema"] == "dasshine.embodied_sequence.v7"
     assert doc["instruction"] == "place block"
     assert doc["success"] == "success"
     assert doc["joints_source"] == "episode"

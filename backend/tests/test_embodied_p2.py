@@ -24,7 +24,7 @@ from app.services.exporters import build_export, list_formats
 
 def test_embodied_primary_formats_p2():
     ids = [f.id for f in list_formats("embodied", include_raw=False)]
-    assert ids == ["json", "lerobot_dataset", "rlds"]
+    assert ids == ["json", "lerobot_dataset", "tfrecord"]
 
 
 def test_force_tactile_from_episode():
@@ -58,7 +58,7 @@ def test_force_tactile_from_episode():
 
 def test_lerobot_dataset_includes_parquet():
     doc = {
-        "schema": "dasshine.embodied_sequence.v6",
+        "schema": "dasshine.embodied_sequence.v7",
         "task_db_id": 9,
         "instruction": "pick",
         "success": "success",
@@ -132,7 +132,7 @@ def test_export_v6_includes_force_preferences():
     }
     ws = SimpleNamespace(id=1)
     doc = build_export_json(task, ws, state, ep)
-    assert doc["schema"] == "dasshine.embodied_sequence.v6"
+    assert doc["schema"] == "dasshine.embodied_sequence.v7"
     assert doc["force_source"] == "episode"
     assert doc["frames"][0]["force"]["fx"] == 9
     assert doc["preferences"][0]["winner"] == "a"
@@ -252,7 +252,7 @@ def test_project_hdf5_exporter_single():
             SimpleNamespace(
                 is_latest=True,
                 data={
-                    "schema": "dasshine.embodied_sequence.v6",
+                    "schema": "dasshine.embodied_sequence.v7",
                     "task_db_id": 21,
                     "instruction": "x",
                     "success": "unknown",

@@ -20,12 +20,13 @@ def _embodied_docs(tasks: List[Any]) -> List[Dict[str, Any]]:
             "dasshine.embodied_sequence.v4",
             "dasshine.embodied_sequence.v5",
             "dasshine.embodied_sequence.v6",
+            "dasshine.embodied_sequence.v7",
         ) or payload.get("frames"):
             docs.append(payload)
             continue
         docs.append(
             {
-                "schema": "dasshine.embodied_sequence.v6",
+                "schema": "dasshine.embodied_sequence.v7",
                 "task_db_id": task.id,
                 "instruction": "",
                 "success": "unknown",
@@ -118,6 +119,20 @@ def export_embodied_rlds(
     return ExportArtifact(
         content=build_rlds_dataset_zip(docs, project_name),
         filename_suffix="_rlds.zip",
+        media_type="application/zip",
+    )
+
+
+def export_embodied_tfrecord(
+    tasks: List[Any], project_name: str, label_classes: Optional[List[Dict]] = None
+) -> ExportArtifact:
+    _ = label_classes
+    from app.services.embodied_service import build_tfrecord_zip
+
+    docs = _embodied_docs(tasks)
+    return ExportArtifact(
+        content=build_tfrecord_zip(docs, project_name),
+        filename_suffix="_tfrecord.zip",
         media_type="application/zip",
     )
 

@@ -90,9 +90,9 @@ FORMATS_BY_CATEGORY: Dict[str, List[FormatMeta]] = {
         FormatMeta("csv", "CSV", "csv", "通用表格"),
     ],
     "embodied": [
-        FormatMeta("json", "Embodied JSON", "json", "dasshine.embodied_sequence.v6"),
+        FormatMeta("json", "Embodied JSON", "json", "dasshine.embodied_sequence.v7"),
         FormatMeta("lerobot_dataset", "LeRobot Dataset", "zip", "parquet + videos ZIP"),
-        FormatMeta("rlds", "RLDS-lite", "zip", "episodes/*/steps.jsonl"),
+        FormatMeta("tfrecord", "TFRecord", "zip", "tf.Example TFRecord ZIP"),
     ],
 }
 
@@ -151,6 +151,7 @@ _EXPORTERS: Dict[str, Dict[str, ExporterFn]] = {
     "embodied": {
         "json": embodied.export_embodied_json,
         "lerobot_dataset": embodied.export_embodied_lerobot_dataset,
+        "tfrecord": embodied.export_embodied_tfrecord,
         "rlds": embodied.export_embodied_rlds,
         "hdf5": embodied.export_embodied_hdf5,
         "lerobot_jsonl": embodied.export_embodied_lerobot,

@@ -91,6 +91,7 @@ class Settings(BaseSettings):
     EMBODIED_VIDEO_DOWNLOAD_MAX_MB: float = 32.0
     EMBODIED_VIDEO_DOWNLOAD_TIMEOUT: float = 15.0
     EMBODIED_VIDEO_DOWNLOAD_MAX_STREAMS: int = 8
+    EMBODIED_POLICY_WEIGHTS_DIR: Optional[str] = None
 
     def resolved_yolo_weights_path(self) -> Path:
         """本地 YOLO 权重路径（存在则用自定义，否则交给 Ultralytics 自动下载）"""

@@ -38,6 +38,14 @@ type ReviewDetail = {
     joints_source?: string
     force_source?: string
     tactile_source?: string
+    quality?: {
+      instruction_empty?: boolean
+      segment_coverage?: number
+      grasp_count?: number
+      trajectory_points?: number
+      preference_count?: number
+      success?: string
+    }
     total_frames?: number
   } | null
   last_reject_feedback?: string
@@ -281,6 +289,13 @@ export default function ReviewQueue() {
                         {detail.embodied_preview.trajectory_points ?? 0} · 偏好{' '}
                         {detail.embodied_preview.preferences ?? 0}
                       </div>
+                      {detail.embodied_preview.quality && (
+                        <div className="text-white/30 font-mono">
+                          覆盖{' '}
+                          {((detail.embodied_preview.quality.segment_coverage ?? 0) * 100).toFixed(0)}%
+                          {detail.embodied_preview.quality.instruction_empty ? ' · 指令空' : ''}
+                        </div>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {(detail.embodied_preview.streams || []).map((s, i) => (

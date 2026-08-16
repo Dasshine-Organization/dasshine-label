@@ -11,6 +11,6 @@
 5. **策略预标注**：`POST /embodied/tasks/{ref}/prelabel`（demo 启发式填指令/区间/抓取）；工作台一键应用
 6. **单测 + 文档**
 
-## 仍留 P4
+## 仍留后续
 
-原生 TFRecord / tensorflow-datasets、完整点云级 6DoF 手柄编辑器、策略权重本地托管。
+`tensorflow-datasets` 官方加载器、点云级场景编辑、本地 GPU 策略推理、异步超大包导出。

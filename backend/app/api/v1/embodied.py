@@ -5,9 +5,9 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -35,6 +35,7 @@ from app.services.embodied_service import (
     build_lerobot_dataset_zip,
     build_lerobot_jsonl,
     build_rlds_dataset_zip,
+    build_tfrecord_zip,
     build_torque_csv,
     get_episode_dict,
     get_or_create_workspace,
@@ -45,12 +46,15 @@ from app.services.embodied_service import (
     submit_annotation,
     workspace_to_state,
 )
+from app.services.embodied_policy_weights import (
+    activate_policy_weight,
+    delete_policy_weight,
+    list_policy_weights,
+    save_policy_weight,
+)
 from app.services.project_acl import can_access_task_workspace
 
 router = APIRouter(prefix="/embodied", tags=["具身标注"])
-
-
-def _episode_to_api(ep: Dict[str, Any], task=None) -> EmbodiedEpisodeSchema:
     streams = []
     for s in ep.get("streams") or []:
         streams.append(
@@ -61,6 +65,8 @@ def _episode_to_api(ep: Dict[str, Any], task=None) -> EmbodiedEpisodeSchema:
                 "fallback_src": s.get("fallback_src"),
                 "object_position": s.get("object_position"),
                 "scale": s.get("scale"),
+                "intrinsics": s.get("intrinsics"),
+                "extrinsics": s.get("extrinsics"),
             }
         )
     attr = ep.get("attribution") or {}
@@ -306,6 +312,20 @@ def export_embodied(
             },
         )
 
+    if body.format == "tfrecord":
+        doc = build_export_json(task, ws, state, episode)
+        content = build_tfrecord_zip(
+            [doc],
+            str(episode.get("project_name") or "embodied"),
+        )
+        return Response(
+            content=content,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="embodied_tfrecord_{get_task_ref(task)}.zip"'
+            },
+        )
+
     payload = build_export_json(task, ws, state, episode)
     return Response(
         content=json.dumps(payload, ensure_ascii=False, indent=2),
@@ -352,3 +372,59 @@ def submit_embodied(
         "task_ref": get_task_ref(task),
         "task_status": task.status.value if hasattr(task.status, "value") else task.status,
     }
+
+
+@router.get("/policy-weights")
+def api_list_policy_weights(
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    return list_policy_weights()
+
+
+@router.post("/policy-weights")
+async def api_upload_policy_weight(
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    note: str = Form(""),
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="空文件")
+    if len(content) > 512 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="文件过大（上限 512MB）")
+    item = save_policy_weight(
+        filename=file.filename or "model.bin",
+        content=content,
+        name=name,
+        note=note or "",
+    )
+    return {"message": "已上传策略权重", "item": item, **list_policy_weights()}
+
+
+@router.post("/policy-weights/{weight_id}/activate")
+def api_activate_policy_weight(
+    weight_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    try:
+        item = activate_policy_weight(weight_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"message": "已激活", "item": item, **list_policy_weights()}
+
+
+@router.delete("/policy-weights/{weight_id}")
+def api_delete_policy_weight(
+    weight_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    _ = current_user
+    try:
+        delete_policy_weight(weight_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"message": "已删除", **list_policy_weights()}

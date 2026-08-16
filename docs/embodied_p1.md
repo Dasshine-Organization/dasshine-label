@@ -9,6 +9,6 @@
 3. **审核多机位预览**：`/quality/tasks/{id}` 返回 `embodied_preview`；审核页展示多路缩略图 + 指令/成败/区间摘要
 4. **单测 + 文档**
 
-## 仍留 P4
+## 仍留后续
 
-原生 TFRecord / tensorflow-datasets、完整点云级 6DoF 手柄编辑器、策略权重本地托管。
+`tensorflow-datasets` 官方加载器、点云级场景编辑、本地 GPU 策略推理、异步超大包导出。

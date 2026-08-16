@@ -15,7 +15,7 @@ from app.services.exporters import build_export, list_formats
 
 def test_embodied_primary_formats_include_lerobot_dataset():
     ids = [f.id for f in list_formats("embodied", include_raw=False)]
-    assert ids == ["json", "lerobot_dataset", "rlds"]
+    assert ids == ["json", "lerobot_dataset", "tfrecord"]
 
 
 def test_lerobot_dataset_zip_layout():

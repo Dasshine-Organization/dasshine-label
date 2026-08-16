@@ -149,6 +149,53 @@ def normalize_episode(ep: Dict[str, Any]) -> Dict[str, Any]:
             "detail_url": "",
             "note": "imported episode",
         }
+    streams = []
+    for s in ep.get("streams") or []:
+        if not isinstance(s, dict) or not s.get("src"):
+            continue
+        row = {
+            "id": str(s.get("id") or f"cam{len(streams)}"),
+            "label": str(s.get("label") or s.get("id") or "cam"),
+            "src": str(s.get("src")),
+        }
+        if s.get("fallback_src"):
+            row["fallback_src"] = str(s.get("fallback_src"))
+        if s.get("object_position"):
+            row["object_position"] = str(s.get("object_position"))
+        if s.get("scale") is not None:
+            try:
+                row["scale"] = float(s.get("scale"))
+            except (TypeError, ValueError):
+                pass
+        intr = s.get("intrinsics")
+        if isinstance(intr, dict):
+            row["intrinsics"] = {
+                "fx": float(intr.get("fx", 0) or 0),
+                "fy": float(intr.get("fy", 0) or 0),
+                "cx": float(intr.get("cx", 0) or 0),
+                "cy": float(intr.get("cy", 0) or 0),
+                "width": float(intr.get("width", 0) or 0),
+                "height": float(intr.get("height", 0) or 0),
+            }
+        extr = s.get("extrinsics")
+        if isinstance(extr, dict):
+            pos = extr.get("position") if isinstance(extr.get("position"), dict) else {}
+            ori = extr.get("orientation") if isinstance(extr.get("orientation"), dict) else {}
+            row["extrinsics"] = {
+                "position": {
+                    "x": float(pos.get("x", 0) or 0),
+                    "y": float(pos.get("y", 0) or 0),
+                    "z": float(pos.get("z", 0) or 0),
+                },
+                "orientation": {
+                    "roll": float(ori.get("roll", 0) or 0),
+                    "pitch": float(ori.get("pitch", 0) or 0),
+                    "yaw": float(ori.get("yaw", 0) or 0),
+                },
+            }
+        streams.append(row)
+    if streams:
+        out["streams"] = streams
     # index proprioception by frame for fast lookup
     prop = ep.get("proprioception") or ep.get("frames_proprio") or []
     by_idx: Dict[int, Dict[str, Any]] = {}

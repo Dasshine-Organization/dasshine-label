@@ -263,6 +263,16 @@ export const embodiedApi = {
   prelabel: (taskRef: string, model: 'auto' | 'embodied_policy_demo' | 'embodied_policy_http' = 'auto') =>
     api.post(`/embodied/tasks/${taskRef}/prelabel`, { model }),
 
+  listPolicyWeights: () => api.get('/embodied/policy-weights'),
+  uploadPolicyWeight: (file: File, name?: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (name) fd.append('name', name)
+    return api.post('/embodied/policy-weights', fd)
+  },
+  activatePolicyWeight: (id: string) => api.post(`/embodied/policy-weights/${id}/activate`),
+  deletePolicyWeight: (id: string) => api.delete(`/embodied/policy-weights/${id}`),
+
   submit: (taskRef: string, workTimeSec: number) =>
     api.post(`/embodied/tasks/${taskRef}/submit`, { work_time: workTimeSec }),
 }

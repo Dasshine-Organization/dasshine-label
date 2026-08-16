@@ -1,6 +1,6 @@
-import { Suspense, useMemo, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Grid, OrbitControls, Line } from '@react-three/drei'
+import { Grid, OrbitControls, Line, TransformControls } from '@react-three/drei'
 import * as THREE from 'three'
 import type { GraspPose, TrajectoryPoint } from '../../services/embodied'
 
@@ -10,133 +10,82 @@ type Props = {
   frame: number
   selectedGraspId?: string | null
   onSelectGrasp?: (id: string | null) => void
-  onMoveGrasp?: (id: string, position: { x: number; y: number; z: number }) => void
+  onMoveGrasp?: (
+    id: string,
+    position: { x: number; y: number; z: number },
+    orientation?: { roll: number; pitch: number; yaw: number },
+  ) => void
   onMoveTrajectory?: (frame: number, ee: TrajectoryPoint['ee']) => void
 }
 
-function rpyToEuler(roll: number, pitch: number, yaw: number) {
-  return new THREE.Euler(roll, pitch, yaw, 'XYZ')
+function eulerToRpy(e: THREE.Euler) {
+  return { roll: e.x, pitch: e.y, yaw: e.z }
 }
 
-function GraspMarker({
-  grasp,
+function EditableObject({
   selected,
+  mode,
+  position,
+  rotation,
   onSelect,
-  onMove,
+  onChange,
+  children,
 }: {
-  grasp: GraspPose
   selected: boolean
+  mode: 'translate' | 'rotate'
+  position: [number, number, number]
+  rotation: [number, number, number]
   onSelect: () => void
-  onMove: (p: { x: number; y: number; z: number }) => void
+  onChange: (pos: THREE.Vector3, rot: THREE.Euler) => void
+  children: React.ReactNode
 }) {
-  const dragging = useRef(false)
-  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
-  const hit = useMemo(() => new THREE.Vector3(), [])
+  const ref = useRef<THREE.Group>(null)
+  const [, bump] = useState(0)
+
+  useEffect(() => {
+    if (!ref.current) return
+    ref.current.position.set(...position)
+    ref.current.rotation.set(...rotation, 'XYZ')
+  }, [position, rotation])
+
+  useEffect(() => {
+    if (selected) bump(n => n + 1)
+  }, [selected])
 
   return (
-    <group
-      position={[grasp.position.x, grasp.position.y, grasp.position.z]}
-      rotation={rpyToEuler(grasp.orientation.roll, grasp.orientation.pitch, grasp.orientation.yaw)}
-    >
-      <mesh
+    <>
+      <group
+        ref={ref}
         onClick={e => {
           e.stopPropagation()
           onSelect()
         }}
-        onPointerDown={e => {
-          e.stopPropagation()
-          dragging.current = true
-          ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-          onSelect()
-        }}
-        onPointerUp={() => {
-          dragging.current = false
-        }}
-        onPointerMove={e => {
-          if (!dragging.current) return
-          e.stopPropagation()
-          const ray = e.ray
-          if (ray.intersectPlane(plane, hit)) {
-            onMove({ x: hit.x, y: grasp.position.y, z: hit.z })
-          }
-        }}
       >
-        <boxGeometry args={[grasp.width || 0.08, 0.04, 0.06]} />
-        <meshStandardMaterial
-          color={selected ? '#f97316' : '#38bdf8'}
-          transparent
-          opacity={0.85}
+        {children}
+      </group>
+      {selected && ref.current && (
+        <TransformControls
+          object={ref.current}
+          mode={mode}
+          size={0.55}
+          onObjectChange={() => {
+            const g = ref.current
+            if (!g) return
+            onChange(g.position.clone(), g.rotation.clone())
+          }}
         />
-      </mesh>
-      <axesHelper args={[0.12]} />
-    </group>
+      )}
+    </>
   )
 }
 
-function TrajectoryPath({
-  points,
-  frame,
-  onMove,
-}: {
-  points: TrajectoryPoint[]
-  frame: number
-  onMove: (frame: number, ee: TrajectoryPoint['ee']) => void
-}) {
-  const sorted = useMemo(
-    () => [...points].sort((a, b) => a.frame - b.frame),
-    [points],
-  )
-  const linePts = useMemo(
-    () => sorted.map(p => new THREE.Vector3(p.ee.x, p.ee.y, p.ee.z)),
-    [sorted],
-  )
-  const current = sorted.find(p => p.frame === frame) || sorted[sorted.length - 1]
-  const dragging = useRef(false)
-  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
-  const hit = useMemo(() => new THREE.Vector3(), [])
-
-  return (
-    <group>
-      {linePts.length >= 2 && (
-        <Line points={linePts} color="#a78bfa" lineWidth={2} />
-      )}
-      {sorted.map(p => (
-        <mesh key={p.frame} position={[p.ee.x, p.ee.y, p.ee.z]}>
-          <sphereGeometry args={[0.018, 12, 12]} />
-          <meshStandardMaterial color={p.frame === frame ? '#fbbf24' : '#7c3aed'} />
-        </mesh>
-      ))}
-      {current && (
-        <mesh
-          position={[current.ee.x, current.ee.y, current.ee.z]}
-          onPointerDown={e => {
-            e.stopPropagation()
-            dragging.current = true
-          }}
-          onPointerUp={() => {
-            dragging.current = false
-          }}
-          onPointerMove={e => {
-            if (!dragging.current) return
-            e.stopPropagation()
-            if (e.ray.intersectPlane(plane, hit)) {
-              onMove(current.frame, {
-                ...current.ee,
-                x: hit.x,
-                z: hit.z,
-              })
-            }
-          }}
-        >
-          <sphereGeometry args={[0.03, 16, 16]} />
-          <meshStandardMaterial color="#fbbf24" wireframe />
-        </mesh>
-      )}
-    </group>
-  )
-}
-
-function SceneContent(props: Props) {
+function SceneContent(
+  props: Props & {
+    mode: 'translate' | 'rotate'
+    selectTarget: 'grasp' | 'traj' | null
+    onSelectTarget: (t: 'grasp' | 'traj' | null) => void
+  },
+) {
   const {
     grasps,
     trajectory,
@@ -145,7 +94,21 @@ function SceneContent(props: Props) {
     onSelectGrasp,
     onMoveGrasp,
     onMoveTrajectory,
+    mode,
+    selectTarget,
+    onSelectTarget,
   } = props
+
+  const sorted = useMemo(
+    () => [...trajectory].sort((a, b) => a.frame - b.frame),
+    [trajectory],
+  )
+  const linePts = useMemo(
+    () => sorted.map(p => new THREE.Vector3(p.ee.x, p.ee.y, p.ee.z)),
+    [sorted],
+  )
+  const current = sorted.find(p => p.frame === frame)
+
   return (
     <>
       <ambientLight intensity={0.55} />
@@ -159,19 +122,75 @@ function SceneContent(props: Props) {
         sectionColor="#555"
       />
       <axesHelper args={[0.4]} />
-      <TrajectoryPath
-        points={trajectory}
-        frame={frame}
-        onMove={(f, ee) => onMoveTrajectory?.(f, ee)}
-      />
+      {linePts.length >= 2 && <Line points={linePts} color="#a78bfa" lineWidth={2} />}
+      {sorted.map(p => (
+        <mesh key={p.frame} position={[p.ee.x, p.ee.y, p.ee.z]}>
+          <sphereGeometry args={[0.018, 12, 12]} />
+          <meshStandardMaterial color={p.frame === frame ? '#fbbf24' : '#7c3aed'} />
+        </mesh>
+      ))}
+      {current && (
+        <EditableObject
+          selected={selectTarget === 'traj'}
+          mode={mode}
+          position={[current.ee.x, current.ee.y, current.ee.z]}
+          rotation={[current.ee.roll, current.ee.pitch, current.ee.yaw]}
+          onSelect={() => {
+            onSelectTarget('traj')
+            onSelectGrasp?.(null)
+          }}
+          onChange={(pos, rot) => {
+            const rpy = eulerToRpy(rot)
+            onMoveTrajectory?.(current.frame, {
+              x: pos.x,
+              y: pos.y,
+              z: pos.z,
+              roll: rpy.roll,
+              pitch: rpy.pitch,
+              yaw: rpy.yaw,
+            })
+          }}
+        >
+          <mesh>
+            <sphereGeometry args={[0.032, 16, 16]} />
+            <meshStandardMaterial
+              color="#fbbf24"
+              wireframe={selectTarget !== 'traj'}
+            />
+          </mesh>
+        </EditableObject>
+      )}
       {grasps.map(g => (
-        <GraspMarker
+        <EditableObject
           key={g.id}
-          grasp={g}
-          selected={selectedGraspId === g.id}
-          onSelect={() => onSelectGrasp?.(g.id)}
-          onMove={pos => onMoveGrasp?.(g.id, pos)}
-        />
+          selected={selectTarget === 'grasp' && selectedGraspId === g.id}
+          mode={mode}
+          position={[g.position.x, g.position.y, g.position.z]}
+          rotation={[g.orientation.roll, g.orientation.pitch, g.orientation.yaw]}
+          onSelect={() => {
+            onSelectTarget('grasp')
+            onSelectGrasp?.(g.id)
+          }}
+          onChange={(pos, rot) => {
+            onMoveGrasp?.(
+              g.id,
+              { x: pos.x, y: pos.y, z: pos.z },
+              eulerToRpy(rot),
+            )
+          }}
+        >
+          <mesh>
+            <boxGeometry args={[g.width || 0.08, 0.04, 0.06]} />
+            <meshStandardMaterial
+              color={
+                selectTarget === 'grasp' && selectedGraspId === g.id ? '#f97316' : '#38bdf8'
+              }
+              transparent
+              opacity={0.85}
+            />
+          </mesh>
+          <axesHelper args={[0.12]} />
+        </EditableObject>
       ))}
       <OrbitControls makeDefault enableDamping dampingFactor={0.12} />
     </>
@@ -179,15 +198,56 @@ function SceneContent(props: Props) {
 }
 
 export default function EmbodiedPose3DViewer(props: Props) {
+  const [mode, setMode] = useState<'translate' | 'rotate'>('translate')
+  const [selectTarget, setSelectTarget] = useState<'grasp' | 'traj' | null>(null)
+
   return (
-    <div className="w-full h-[240px] rounded-lg overflow-hidden border border-[#1e1e2e] bg-[#0a0a0f]">
-      <Canvas camera={{ position: [0.8, 0.7, 0.9], fov: 45 }} onPointerMissed={() => props.onSelectGrasp?.(null)}>
-        <Suspense fallback={null}>
-          <SceneContent {...props} />
-        </Suspense>
-      </Canvas>
-      <div className="px-2 py-1 text-[10px] text-white/30 border-t border-[#1e1e2e] bg-[#0a0a0f]">
-        拖拽抓取块 / 当前帧轨迹点（XZ 平面）；滚轮缩放 · 右键平移
+    <div className="w-full rounded-lg overflow-hidden border border-[#1e1e2e] bg-[#0a0a0f]">
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-[#1e1e2e] text-[10px]">
+        <button
+          type="button"
+          onClick={() => setMode('translate')}
+          className={`px-2 py-0.5 rounded border ${
+            mode === 'translate'
+              ? 'border-[#f97316]/50 text-[#f97316]'
+              : 'border-[#1e1e2e] text-white/40'
+          }`}
+        >
+          平移
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('rotate')}
+          className={`px-2 py-0.5 rounded border ${
+            mode === 'rotate'
+              ? 'border-[#f97316]/50 text-[#f97316]'
+              : 'border-[#1e1e2e] text-white/40'
+          }`}
+        >
+          旋转
+        </button>
+        <span className="text-white/25 ml-auto">6DoF · TransformControls</span>
+      </div>
+      <div className="w-full h-[240px]">
+        <Canvas
+          camera={{ position: [0.8, 0.7, 0.9], fov: 45 }}
+          onPointerMissed={() => {
+            setSelectTarget(null)
+            props.onSelectGrasp?.(null)
+          }}
+        >
+          <Suspense fallback={null}>
+            <SceneContent
+              {...props}
+              mode={mode}
+              selectTarget={selectTarget}
+              onSelectTarget={setSelectTarget}
+            />
+          </Suspense>
+        </Canvas>
+      </div>
+      <div className="px-2 py-1 text-[10px] text-white/30 border-t border-[#1e1e2e]">
+        选中抓取或当前帧轨迹点后拖动手柄；与数值字段双向同步
       </div>
     </div>
   )

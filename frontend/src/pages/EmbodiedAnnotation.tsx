@@ -141,6 +141,7 @@ export default function EmbodiedAnnotation() {
   const [preferences, setPreferences] = useState<PreferencePair[]>([])
   const [prelabeling, setPrelabeling] = useState(false)
   const [selectedGraspId, setSelectedGraspId] = useState<string | null>(null)
+  const [policyActive, setPolicyActive] = useState<string | null>(null)
   const [segStart, setSegStart] = useState<number | null>(null)
 
   useEffect(() => {
@@ -573,6 +574,28 @@ export default function EmbodiedAnnotation() {
     }
   }, [useBackend, taskId])
 
+  useEffect(() => {
+    if (!useBackend) return
+    void embodiedApi
+      .listPolicyWeights()
+      .then(res => setPolicyActive(res.data?.active_id ?? null))
+      .catch(() => undefined)
+  }, [useBackend])
+
+  const uploadPolicyWeight = useCallback(
+    async (file: File | null) => {
+      if (!file || !useBackend) return
+      try {
+        const { data } = await embodiedApi.uploadPolicyWeight(file)
+        setPolicyActive(data?.active_id ?? data?.item?.id ?? null)
+        message.success('策略权重已上传并可用')
+      } catch {
+        message.error('权重上传失败')
+      }
+    },
+    [useBackend],
+  )
+
   const exportTorqueCsv = useCallback(async () => {
     if (useBackend) {
       try {
@@ -721,6 +744,24 @@ export default function EmbodiedAnnotation() {
           >
             {prelabeling ? '预标注中…' : '策略预标注'}
           </button>
+          <label className="text-xs px-3 py-1.5 rounded-lg border border-[#1e1e2e] text-white/50 hover:border-white/25 cursor-pointer disabled:opacity-40">
+            上传权重
+            <input
+              type="file"
+              className="hidden"
+              disabled={!useBackend}
+              onChange={e => {
+                const f = e.target.files?.[0] ?? null
+                void uploadPolicyWeight(f)
+                e.target.value = ''
+              }}
+            />
+          </label>
+          {policyActive && (
+            <span className="text-[10px] text-white/30 font-mono truncate max-w-[7rem]" title={policyActive}>
+              w:{policyActive.slice(0, 8)}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => void handleSubmit()}
@@ -938,8 +979,18 @@ export default function EmbodiedAnnotation() {
               frame={frame}
               selectedGraspId={selectedGraspId}
               onSelectGrasp={setSelectedGraspId}
-              onMoveGrasp={(id, position) =>
-                setGrasps(prev => prev.map(g => (g.id === id ? { ...g, position } : g)))
+              onMoveGrasp={(id, position, orientation) =>
+                setGrasps(prev =>
+                  prev.map(g =>
+                    g.id === id
+                      ? {
+                          ...g,
+                          position,
+                          orientation: orientation || g.orientation,
+                        }
+                      : g,
+                  ),
+                )
               }
               onMoveTrajectory={(f, ee) =>
                 setTrajectory(prev => prev.map(p => (p.frame === f ? { ...p, ee } : p)))
