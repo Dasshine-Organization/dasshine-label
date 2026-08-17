@@ -86,8 +86,26 @@ export const orgApi = {
   addMember: (orgId: number, data: { user_id: number; role?: string }) =>
     api.post(`/orgs/${orgId}/members`, data),
   getQuota: (orgId: number) => api.get(`/orgs/${orgId}/quota`),
-  updateQuota: (orgId: number, data: { max_projects?: number; max_tasks?: number; max_members?: number }) =>
-    api.put(`/orgs/${orgId}/quota`, data),
+  updateQuota: (
+    orgId: number,
+    data: { max_projects?: number; max_tasks?: number; max_members?: number; credits?: number },
+  ) => api.put(`/orgs/${orgId}/quota`, data),
+  getBilling: (orgId: number) => api.get(`/orgs/${orgId}/billing`),
+  topupBilling: (orgId: number, data: { amount: number; note?: string }) =>
+    api.post(`/orgs/${orgId}/billing/topup`, data),
+  checkout: (orgId: number, packId: string) =>
+    api.post<{ session_id: string; url: string }>(`/orgs/${orgId}/billing/checkout`, {
+      pack_id: packId,
+    }),
+}
+
+export const billingApi = {
+  listPacks: () =>
+    api.get<{ configured: boolean; items: Array<Record<string, unknown>> }>('/billing/packs'),
+  checkout: (orgId: number, packId: string) =>
+    api.post<{ session_id: string; url: string }>(`/orgs/${orgId}/billing/checkout`, {
+      pack_id: packId,
+    }),
 }
 
 // 项目相关 API
@@ -246,66 +264,7 @@ export const taskApi = {
     ),
 }
 
-// 标注相关 API
-export const annotationApi = {
-  // 创建标注
-  create: (data: {
-    task_id: number
-    result: Record<string, any>
-    work_time: number
-  }) => api.post('/annotations', data),
-
-  // 获取标注详情
-  getById: (id: number) => api.get(`/annotations/${id}`),
-
-  // 更新标注
-  update: (id: number, data: {
-    result: Record<string, any>
-    work_time?: number
-  }) => api.put(`/annotations/${id}`, data),
-
-  // 获取任务的标注列表
-  getByTask: (taskId: number) => api.get(`/tasks/${taskId}/annotations`),
-
-  // 获取用户的标注历史
-  getByUser: (userId: number, params?: { skip?: number; limit?: number }) =>
-    api.get(`/users/${userId}/annotations`, { params }),
-}
-
-// 3D标注相关 API
-export const annotations3DApi = {
-  // 创建3D边界框
-  createCuboid: (taskId: number, dataId: string, cuboid: any, frameId?: number, trackId?: string) =>
-    api.post('/annotations/3d/cuboid', cuboid, { params: { task_id: taskId, data_id: dataId, frame_id: frameId, track_id: trackId } }),
-
-  // 创建3D关键点
-  createPoint: (taskId: number, dataId: string, point: any, frameId?: number) =>
-    api.post('/annotations/3d/point', point, { params: { task_id: taskId, data_id: dataId, frame_id: frameId } }),
-
-  // 获取任务的3D标注
-  getByTask: (taskId: number, params?: { data_id?: string; frame_id?: number; annotation_type?: string }) =>
-    api.get(`/annotations/3d/task/${taskId}`, { params }),
-
-  // 更新3D标注
-  update: (annotationId: string, updates: any) =>
-    api.put(`/annotations/3d/${annotationId}`, updates),
-
-  // 删除3D标注
-  delete: (annotationId: string) =>
-    api.delete(`/annotations/3d/${annotationId}`),
-
-  // 批量创建
-  batchCreate: (data: { task_id: number; data_id: string; annotations: any[] }) =>
-    api.post('/annotations/3d/batch', data),
-
-  // 获取统计
-  getStats: (taskId: number) =>
-    api.get(`/annotations/3d/task/${taskId}/stats`),
-
-  // 导出
-  export: (taskId: number, format: 'kitti' | 'json' | 'csv', includeMetadata?: boolean) =>
-    api.post(`/annotations/3d/task/${taskId}/export`, { format, include_metadata: includeMetadata }),
-}
+// 标注相关 API 已废弃（410）。请使用 taskApi annotation-draft / submit。
 
 // 导出相关 API
 export const exportApi = {
@@ -349,29 +308,7 @@ export const exportApi = {
     }>(`/export/${projectId}/stats`),
 }
 
-// 自动标注相关 API
-export const autoLabelApi = {
-  // 获取支持的模型列表
-  getModels: () => api.get('/auto-label/models'),
-
-  // 创建自动标注任务
-  createTask: (projectId: number, config: {
-    model: string
-    task_type: string
-    confidence_threshold?: number
-  }) => api.post('/auto-label/tasks', { project_id: projectId, config }),
-
-  // 为单个数据项执行自动标注
-  processItem: (taskId: number, model?: string) =>
-    api.post(`/auto-label/process/${taskId}`, { model }),
-
-  // 批量处理
-  processBatch: (projectId: number, model?: string) =>
-    api.post('/auto-label/batch', { project_id: projectId, model }),
-
-  // 查看自动标注结果
-  getResult: (taskId: number) => api.get(`/auto-label/result/${taskId}`),
-}
+// LLM/OCR 自动标注未接入（API 501）。2D 请用 taskApi prelabel。
 
 // 质量控制相关 API
 export const qualityApi = {

@@ -77,6 +77,7 @@ class OrganizationService:
                 "max_projects": 50,
                 "max_tasks": 100_000,
                 "max_members": 200,
+                "credits": 10_000,
             },
         )
         self.db.add(org)
@@ -163,4 +164,5 @@ class OrganizationService:
         }
         if db is not None:
             payload["usage"] = org_usage(db, org.id)
+            payload["credits"] = payload["quota"].get("credits", 0)
         return payload

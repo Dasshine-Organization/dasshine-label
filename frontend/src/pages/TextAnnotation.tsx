@@ -14,7 +14,7 @@ export default function TextAnnotation() {
   const { taskId = '3001' } = useParams<{ taskId: string }>()
   const [searchParams] = useSearchParams()
   const projectIdParam = searchParams.get('projectId')
-  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit } =
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
     useModalityWorkspace(taskId, 'text', 'ner')
 
   const [activeLabel, setActiveLabel] = useState('PER')
@@ -94,6 +94,10 @@ export default function TextAnnotation() {
       onSubmit={() => submit()}
       backHref={backHref}
       backLabel="← 返回"
+      lock={lock}
+      lockBlocked={lockBlocked}
+      peers={peers}
+      connected={connected}
       headerExtra={
         <ProjectExportMenu
           projectId={projectIdParam ?? ws?.project_id}

@@ -1,14 +1,16 @@
-/** 任务 1002：迷你城市路口点云（KITTI 坐标系结构，见 public/samples） */
+import { isEmbodiedTaskId } from '../mocks/embodiedDemoData'
+import { isDemoEntriesEnabled } from './demoMode'
+
+/** 任务 1002：迷你城市路口点云（仅演示开关开启时使用） */
 export const TASK_POINT_CLOUD_SAMPLES: Record<string, string> = {
   '1002': '/samples/urban_intersection_mini.pcd',
   '1006': '/samples/urban_intersection_mini.pcd',
 }
 
 export function getTaskPointCloudUrl(taskId: string | number): string | undefined {
+  if (!isDemoEntriesEnabled()) return undefined
   return TASK_POINT_CLOUD_SAMPLES[String(taskId)]
 }
-
-import { isEmbodiedTaskId } from '../mocks/embodiedDemoData'
 
 export type AnnotationWorkspaceMode =
   | '2d'
@@ -20,7 +22,7 @@ export type AnnotationWorkspaceMode =
   | 'video'
   | 'multimodal'
 
-/** 演示任务元数据（后续可改为 API 返回） */
+/** 演示任务元数据（仅 isDemoEntriesEnabled 时生效） */
 export const DEMO_TASK_IDS = new Set([
   '1001', '1002', '1003', '1004', '1005', '1006',
   '2001', '2002', 'demo',
@@ -28,6 +30,7 @@ export const DEMO_TASK_IDS = new Set([
 ])
 
 export function isDemoTaskId(taskId: string | number): boolean {
+  if (!isDemoEntriesEnabled()) return false
   return DEMO_TASK_IDS.has(String(taskId))
 }
 

@@ -10,7 +10,7 @@ P9 收口了共识裁决与索引。本迭代补齐大规模运维缺口；**完
 | **P10-2** | 组织配额：`organizations.quota`；创建项目与导入前校验；`GET/PUT /orgs/{id}/quota` | ✅ |
 | **P10-3** | 黄金题轮换：Celery beat + `quality_config.golden_rotation` | ✅ |
 
-**明确不做（P11）：** Yjs/Automerge CRDT 共编、计费扣款/Stripe、对象存储挂载目录。
+**明确不做（P11 已交付切片 / P12 延后）：** Stripe 签约续费、全模态深度 CRDT、NFS/FUSE 内核挂载。见 `docs/p11_collab_billing_mount.md`。
 
 ## 配额默认
 

@@ -100,6 +100,55 @@ def _enforce_task_quota(db: Session, project, add_count: int = 1):
         raise HTTPException(403, msg)
 
 
+def _project_org(db: Session, project):
+    org = getattr(project, "organization", None)
+    if org is None and getattr(project, "organization_id", None):
+        from app.models.organization import Organization
+
+        org = db.query(Organization).filter(Organization.id == project.organization_id).first()
+    return org
+
+
+def _enforce_import_credits(db: Session, project, add_count: int = 1):
+    from app.services.org_billing import check_can_spend, import_cost
+
+    org = _project_org(db, project)
+    ok, msg = check_can_spend(org, import_cost(add_count))
+    if not ok:
+        raise HTTPException(402, msg)
+
+
+def _charge_import_success(
+    db: Session,
+    project,
+    success: int,
+    *,
+    user_id: int,
+    ref_id: str,
+):
+    from app.services.org_billing import import_cost, spend
+
+    if success <= 0:
+        return
+    org = _project_org(db, project)
+    ok, msg = spend(
+        db,
+        org,
+        import_cost(success),
+        reason="import",
+        created_by_id=user_id,
+        ref_type="project",
+        ref_id=ref_id,
+    )
+    if not ok:
+        # 已导入完成时仅记警告，避免回滚大批量任务
+        import logging
+
+        logging.getLogger("dasshine.billing").warning("import charge failed: %s", msg)
+    else:
+        db.commit()
+
+
 def _stage_upload(content: bytes, suffix: str = ".zip") -> str:
     from pathlib import Path
     import uuid
@@ -150,14 +199,22 @@ def import_urls(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_project_access(project_id, current_user, db)
+    project = _check_project_access(project_id, current_user, db)
+    n = len(payload.urls)
+    _enforce_task_quota(db, project, add_count=n)
+    _enforce_import_credits(db, project, add_count=n)
     svc = _import_service(db)
     result = svc.import_from_urls(
         project_id, payload.urls,
         priority=payload.priority,
         golden_ratio=payload.golden_ratio,
     )
-    return result.to_dict()
+    out = result.to_dict()
+    _charge_import_success(
+        db, project, int(out.get("success") or 0),
+        user_id=current_user.id, ref_id=f"urls:{project_id}",
+    )
+    return out
 
 
 # ── Text import ───────────────────────────────────────────────────────────────
@@ -169,14 +226,22 @@ def import_texts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _check_project_access(project_id, current_user, db)
+    project = _check_project_access(project_id, current_user, db)
+    n = len(payload.texts)
+    _enforce_task_quota(db, project, add_count=n)
+    _enforce_import_credits(db, project, add_count=n)
     svc = _import_service(db)
     result = svc.import_from_texts(
         project_id, payload.texts,
         priority=payload.priority,
         golden_ratio=payload.golden_ratio,
     )
-    return result.to_dict()
+    out = result.to_dict()
+    _charge_import_success(
+        db, project, int(out.get("success") or 0),
+        user_id=current_user.id, ref_id=f"texts:{project_id}",
+    )
+    return out
 
 
 # ── ZIP file upload ───────────────────────────────────────────────────────────
@@ -192,9 +257,11 @@ async def import_local_files(
     current_user: User = Depends(get_current_user),
 ):
     """导入本地图像文件（支持多选或文件夹拖入）"""
-    _check_project_access(project_id, current_user, db)
+    project = _check_project_access(project_id, current_user, db)
     if not files:
         raise HTTPException(400, "请至少上传一个文件")
+    _enforce_task_quota(db, project, add_count=len(files))
+    _enforce_import_credits(db, project, add_count=len(files))
 
     max_size = settings.MAX_UPLOAD_SIZE
     payload: List[tuple] = []
@@ -209,7 +276,12 @@ async def import_local_files(
     result = svc.import_local_files(
         project_id, payload, priority=priority, golden_ratio=golden_ratio
     )
-    return result.to_dict()
+    out = result.to_dict()
+    _charge_import_success(
+        db, project, int(out.get("success") or 0),
+        user_id=current_user.id, ref_id=f"files:{project_id}",
+    )
+    return out
 
 
 @router.post("/{project_id}/import/zip")
@@ -225,6 +297,7 @@ async def import_zip(
 ):
     project = _check_project_access(project_id, current_user, db)
     _enforce_task_quota(db, project, add_count=1)
+    _enforce_import_credits(db, project, add_count=1)
 
     content = await file.read()
     if not content:
@@ -241,7 +314,15 @@ async def import_zip(
         priority=priority,
         golden_ratio=golden_ratio,
     )
-    return result.to_dict()
+    payload = result.to_dict()
+    _charge_import_success(
+        db,
+        project,
+        int(payload.get("success") or 0),
+        user_id=current_user.id,
+        ref_id=f"zip:{project_id}",
+    )
+    return payload
 
 
 @router.post("/{project_id}/import/zip/jobs")
@@ -258,6 +339,7 @@ async def import_zip_job(
     """异步 ZIP 导入：落盘后入队 Celery。"""
     project = _check_project_access(project_id, current_user, db)
     _enforce_task_quota(db, project, add_count=1)
+    _enforce_import_credits(db, project, add_count=1)
 
     content = await file.read()
     if not content or not _is_zip_bytes(content, file.filename):
@@ -346,6 +428,7 @@ async def import_yolo(
 ):
     project = _check_project_access(project_id, current_user, db)
     _enforce_task_quota(db, project, add_count=1)
+    _enforce_import_credits(db, project, add_count=1)
 
     content = await file.read()
     if not content or not _is_zip_bytes(content, file.filename):
@@ -354,7 +437,12 @@ async def import_yolo(
 
     svc = _import_service(db, file_server_base_url)
     result = svc.import_yolo(project_id, content, classes, base_url_prefix, priority)
-    return result.to_dict()
+    out = result.to_dict()
+    _charge_import_success(
+        db, project, int(out.get("success") or 0),
+        user_id=current_user.id, ref_id=f"yolo:{project_id}",
+    )
+    return out
 
 
 @router.post("/{project_id}/import/yolo/jobs")
@@ -370,6 +458,7 @@ async def import_yolo_job(
 ):
     project = _check_project_access(project_id, current_user, db)
     _enforce_task_quota(db, project, add_count=1)
+    _enforce_import_credits(db, project, add_count=1)
 
     content = await file.read()
     if not content or not _is_zip_bytes(content, file.filename):
@@ -487,6 +576,115 @@ async def import_embodied(
     svc = _import_service(db)
     result = svc.import_embodied_episodes(project_id, content, priority=priority)
     return result.to_dict()
+
+
+# ── From storage prefix (P11 mount) ───────────────────────────────────────────
+
+class FromStorageImportRequest(BaseModel):
+    prefix: str = Field(..., min_length=1, max_length=512)
+    extensions: Optional[List[str]] = None
+    limit: int = Field(500, ge=1, le=5000)
+    priority: int = Field(5, ge=1, le=10)
+    golden_ratio: float = Field(0.05, ge=0, le=0.3)
+
+
+@router.post("/{project_id}/import/from-storage")
+def import_from_storage(
+    project_id: int,
+    payload: FromStorageImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从当前存储后端前缀浏览结果批量建任务（local / S3）。"""
+    from app.services.file_storage import IMAGE_EXTS, FileStorageService
+
+    project = _check_project_access(project_id, current_user, db)
+    try:
+        # 导入时递归列文件（delimiter=False）
+        items = FileStorageService().list_prefix(
+            payload.prefix, max_keys=payload.limit, delimiter=False
+        )
+    except Exception as e:
+        raise HTTPException(400, f"浏览存储失败: {e}") from e
+
+    exts = {
+        e.lower() if e.startswith(".") else f".{e.lower()}"
+        for e in (payload.extensions or list(IMAGE_EXTS))
+    }
+    urls: List[str] = []
+    for it in items:
+        if it.get("is_dir"):
+            continue
+        key = (it.get("key") or "").lower()
+        if not any(key.endswith(ext) for ext in exts):
+            continue
+        url = it.get("url")
+        if url:
+            urls.append(url)
+
+    if not urls:
+        raise HTTPException(400, "前缀下没有匹配的文件")
+
+    _enforce_task_quota(db, project, add_count=len(urls))
+    _enforce_import_credits(db, project, add_count=len(urls))
+
+    svc = _import_service(db)
+    result = svc.import_from_urls(
+        project_id,
+        urls,
+        priority=payload.priority,
+        golden_ratio=payload.golden_ratio,
+    )
+    out = result.to_dict()
+    out["source_prefix"] = payload.prefix
+    out["matched"] = len(urls)
+    _charge_import_success(
+        db,
+        project,
+        int(out.get("success") or 0),
+        user_id=current_user.id,
+        ref_id=f"from-storage:{project_id}",
+    )
+    return out
+
+
+@router.post("/{project_id}/import/from-storage/jobs")
+def import_from_storage_job(
+    project_id: int,
+    payload: FromStorageImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """大前缀异步导入（Celery）。"""
+    project = _check_project_access(project_id, current_user, db)
+    _enforce_task_quota(db, project, add_count=1)
+    _enforce_import_credits(db, project, add_count=1)
+    try:
+        from app.tasks.import_tasks import import_from_storage_prefix
+
+        async_result = import_from_storage_prefix.delay(
+            project_id,
+            payload.prefix,
+            current_user.id,
+            {
+                "extensions": payload.extensions,
+                "limit": payload.limit,
+                "priority": payload.priority,
+                "golden_ratio": payload.golden_ratio,
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"后台导入不可用，请使用同步导入或启动 Celery/Redis（{e}）",
+        ) from e
+    return {
+        "job_id": async_result.id,
+        "status": "queued",
+        "project_id": project_id,
+        "kind": "from-storage",
+        "prefix": payload.prefix,
+    }
 
 
 # ── Stats ─────────────────────────────────────────────────────────────────────

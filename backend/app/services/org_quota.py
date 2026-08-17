@@ -16,6 +16,7 @@ DEFAULT_QUOTA: Dict[str, int] = {
     "max_projects": 50,
     "max_tasks": 100_000,
     "max_members": 200,
+    "credits": 10_000,
 }
 
 

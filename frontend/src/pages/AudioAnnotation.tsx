@@ -14,7 +14,7 @@ export default function AudioAnnotation() {
   const { taskId = '3002' } = useParams<{ taskId: string }>()
   const [searchParams] = useSearchParams()
   const projectIdParam = searchParams.get('projectId')
-  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit } =
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
     useModalityWorkspace(taskId, 'audio')
   const audioRef = useRef<HTMLAudioElement>(null)
   const [currentMs, setCurrentMs] = useState(0)
@@ -72,6 +72,10 @@ export default function AudioAnnotation() {
       onSubmit={() => submit()}
       backHref={backHref}
       backLabel="← 返回"
+      lock={lock}
+      lockBlocked={lockBlocked}
+      peers={peers}
+      connected={connected}
       headerExtra={
         <ProjectExportMenu
           projectId={projectIdParam ?? ws?.project_id}

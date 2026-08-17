@@ -26,6 +26,7 @@
     "react-router-dom": "^6.20.0",
     "three": "^0.160.0",
     "uuid": "^13.0.0",
+    "yjs": "^13.6.32",
     "zustand": "^4.5.7"
   },
   "devDependencies": {

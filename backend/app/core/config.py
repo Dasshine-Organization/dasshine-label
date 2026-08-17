@@ -25,7 +25,35 @@ class Settings(BaseSettings):
     # 安全
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7天
+    # 访问令牌默认 12 小时（可用环境变量覆盖；生产建议 ≤ 24h）
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 12
+
+    # 限流（每分钟；优先 Redis，不可用则进程内存）
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_API_PER_MINUTE: int = 180
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 20
+    RATE_LIMIT_CLAIM_PER_MINUTE: int = 40
+    RATE_LIMIT_IMPORT_PER_MINUTE: int = 30
+
+    # P11 共编 / 计费
+    COLLAB_ENABLED: bool = True
+    BILLING_ENABLED: bool = True
+    BILLING_CREDIT_PER_IMPORT_TASK: int = 1
+    BILLING_CREDIT_PER_EXPORT: int = 10
+
+    # P12 Stripe（可选；未配置则 Checkout 不可用）
+    STRIPE_SECRET_KEY: Optional[str] = None
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_SUCCESS_URL: str = "http://localhost:3000/projects?billing=success"
+    STRIPE_CANCEL_URL: str = "http://localhost:3000/projects?billing=cancel"
+    # JSON 数组：[{"id","credits","amount_cents","currency","label"}]
+    STRIPE_CREDIT_PACKS: str = (
+        '[{"id":"pack_1k","credits":1000,"amount_cents":999,"currency":"usd","label":"1000 积分"},'
+        '{"id":"pack_5k","credits":5000,"amount_cents":3999,"currency":"usd","label":"5000 积分"}]'
+    )
+
+    # P12 存储浏览白名单（相对 UPLOAD_DIR 或 S3 prefix；空则默认 projects/）
+    STORAGE_BROWSE_ALLOW_PREFIXES: str = "projects/"
     
     # 数据库
     # DATABASE_URL: PostgresDsn = "postgresql://postgres:postgres@localhost:5432/dasshine_label"

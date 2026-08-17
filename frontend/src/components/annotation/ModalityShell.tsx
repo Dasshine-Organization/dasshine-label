@@ -1,5 +1,9 @@
 import { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import CollabPresenceBar from '../CollabPresenceBar'
+import TaskLockBanner from '../TaskLockBanner'
+import type { TaskLockState } from '../../hooks/useTaskLock'
+import type { CollabPeer } from '../../hooks/useYjsCollab'
 
 type Props = {
   title: string
@@ -16,6 +20,10 @@ type Props = {
   backLabel?: string
   headerExtra?: ReactNode
   children: ReactNode
+  lock?: TaskLockState
+  lockBlocked?: boolean
+  peers?: CollabPeer[]
+  connected?: boolean
 }
 
 export default function ModalityShell({
@@ -32,10 +40,16 @@ export default function ModalityShell({
   backLabel = '← 返回',
   headerExtra,
   children,
+  lock,
+  lockBlocked,
+  peers,
+  connected,
 }: Props) {
   const navigate = useNavigate()
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden">
+      {lock && <TaskLockBanner lock={lock} blocked={Boolean(lockBlocked)} />}
+      {peers && <CollabPresenceBar peers={peers} connected={Boolean(connected)} />}
       <header
         className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-b border-[#1e1e2e] shrink-0"
         style={{ borderBottomColor: `${accent}22` }}

@@ -81,14 +81,15 @@ async def batch_process(
     current_user = Depends(get_current_admin),
     db: Session = Depends(get_db)
 ):
-    """
-    批量自动标注
-    
-    对项目中所有待处理任务执行自动标注
-    """
+    """批量自动标注（LLM/OCR 未接入时返回 501）。"""
+    from fastapi import HTTPException
+
     service = get_auto_label_service(db)
-    stats = await service.batch_process(request.project_id, request.batch_size)
-    
+    try:
+        stats = await service.batch_process(request.project_id, request.batch_size)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=str(e)) from e
+
     return AutoLabelResponse(
         success=True,
         processed=stats['processed'],

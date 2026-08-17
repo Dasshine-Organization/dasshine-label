@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { message } from 'antd'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import TaskLockBanner from '../components/TaskLockBanner'
+import CollabPresenceBar from '../components/CollabPresenceBar'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 
@@ -52,6 +53,8 @@ export default function OcrAnnotation() {
     submit,
     lock,
     lockBlocked,
+    peers,
+    connected,
   } = useModalityWorkspace(taskId, 'ocr', 'ocr_text')
 
   const imgRef = useRef<HTMLImageElement>(null)
@@ -147,6 +150,7 @@ export default function OcrAnnotation() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col">
       <TaskLockBanner lock={lock} blocked={lockBlocked} />
+      <CollabPresenceBar peers={peers} connected={connected} />
       <header className="flex items-center gap-3 px-4 py-3 border-b border-[#1e1e2e] bg-[#12121a]">
         <button
           type="button"

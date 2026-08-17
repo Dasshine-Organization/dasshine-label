@@ -17,6 +17,8 @@ from app.api.v1 import (
     annotations_3d,
     auth,
     auto_label,
+    billing,
+    collab,
     dataset,
     embodied,
     export,
@@ -34,6 +36,7 @@ from app.api.v1 import (
 from app.core.config import settings
 from app.core.logging_middleware import RequestLoggingMiddleware
 from app.core.logging_setup import setup_logging
+from app.core.rate_limit_middleware import RateLimitMiddleware
 
 logger = logging.getLogger("dasshine.app")
 
@@ -64,6 +67,7 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
@@ -78,8 +82,10 @@ def create_application() -> FastAPI:
     app.include_router(roles.router, prefix="/api/v1", tags=["角色"])
     app.include_router(projects.router, prefix="/api/v1")
     app.include_router(orgs.router, prefix="/api/v1")
+    app.include_router(billing.router, prefix="/api/v1")
     app.include_router(dataset.router, prefix="/api/v1")
     app.include_router(storage.router, prefix="/api/v1")
+    app.include_router(collab.router, prefix="/api/v1")
     app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])
     app.include_router(annotations.router, prefix="/api/v1", tags=["标注"])
     app.include_router(annotation_drafts.router, prefix="/api/v1", tags=["标注草稿"])

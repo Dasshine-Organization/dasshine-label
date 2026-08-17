@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { message } from 'antd'
 import { taskApi } from '../services/api'
-import { DEMO_TASK_ROUTES, getAnnotatePath, resolveTaskMode } from '../utils/annotationRoutes'
+import { getAnnotatePath, resolveTaskMode } from '../utils/annotationRoutes'
 import { CATEGORY_HUB_BY_ID } from '../utils/categoryHubs'
 import useAuthStore from '../store/authStore'
 import { useTasksQuery, type TaskListRow } from '../hooks/queries/useTasks'
@@ -46,16 +46,6 @@ function resolveTaskCategory(t: TaskRow): string {
   return ANN_TO_CAT[ann] ?? ''
 }
 
-const MOCK_TASKS: TaskRow[] = Object.entries(DEMO_TASK_ROUTES).map(([id, meta]) => ({
-  id: Number.parseInt(id, 10) || 0,
-  project: meta.label,
-  type: meta.label,
-  category: meta.category,
-  status: 'pending',
-  priority: 5,
-  reward: 1,
-})).filter(t => t.id > 0)
-
 function priorityLabel(p: number) {
   if (p >= 8) return { label: '高', color: '#ef4444' }
   if (p >= 5) return { label: '中', color: '#f59e0b' }
@@ -75,7 +65,7 @@ export default function TaskList() {
     refetch,
   } = useTasksQuery()
 
-  const tasks = token ? apiTasks : MOCK_TASKS
+  const tasks = token ? apiTasks : []
   const loading = Boolean(token) && isLoading
 
   useEffect(() => {

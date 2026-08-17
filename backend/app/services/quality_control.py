@@ -288,10 +288,9 @@ class QualityControlService:
         
         inserted = 0
         for task in candidates:
-            # 这里需要为黄金题设置标准答案
-            # 实际场景：由专家提前标注或从历史数据中选取
             golden_answer = self._generate_golden_answer(task)
-            
+            if not golden_answer:
+                continue
             task.is_golden = True
             task.golden_answer = golden_answer
             inserted += 1
@@ -301,10 +300,8 @@ class QualityControlService:
         
         return inserted
     
-    def _generate_golden_answer(self, task: Task) -> Dict:
-        """
-        生成黄金标准答案：优先用已有最新标注；否则写入可填充的占位结构。
-        """
+    def _generate_golden_answer(self, task: Task) -> Optional[Dict]:
+        """仅在有最新标注真值时生成黄金答案；否则跳过（不写空 placeholder）。"""
         ann = (
             self.db.query(Annotation)
             .filter(Annotation.task_id == task.id, Annotation.is_latest == True)
@@ -318,13 +315,7 @@ class QualityControlService:
                 "confidence": 1.0,
                 "annotation_id": ann.id,
             }
-        return {
-            "data": {},
-            "source": "placeholder",
-            "confidence": 0.0,
-            "note": "awaiting_expert_answer",
-            "task_data_keys": list((task.data or {}).keys())[:12],
-        }
+        return None
     
     def calculate_annotator_quality(self, user_id: int) -> Optional[QualityScore]:
         """

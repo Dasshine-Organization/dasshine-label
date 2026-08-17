@@ -1,31 +1,7 @@
 """
-数据库会话管理
+数据库会话：统一转发到 app.core.database，避免双引擎。
 """
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from app.core.config import settings
+from app.core.database import SessionLocal, engine, get_db  # noqa: F401
 
-# 创建引擎
-engine = create_engine(
-    str(settings.DATABASE_URL),
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_pre_ping=True,  # 自动检测连接是否有效
-)
-
-# 会话工厂
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine
-)
-
-
-def get_db() -> Session:
-    """获取数据库会话（同步版本）"""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+__all__ = ["SessionLocal", "engine", "get_db"]

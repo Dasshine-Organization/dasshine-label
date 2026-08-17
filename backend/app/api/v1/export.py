@@ -161,6 +161,18 @@ def enqueue_export_job(
     ):
         raise HTTPException(status_code=403, detail="无权导出该项目")
 
+    # 计费预检
+    from app.models.organization import Organization
+    from app.services.org_billing import check_can_spend, export_cost, spend
+
+    org = None
+    if getattr(project, "organization_id", None):
+        org = db.query(Organization).filter(Organization.id == project.organization_id).first()
+    cost = export_cost()
+    ok, msg = check_can_spend(org, cost)
+    if not ok:
+        raise HTTPException(status_code=402, detail=msg)
+
     category = _resolve_project_category(project)
     fmt = (format or default_format_for(category)).strip().lower()
     try:
@@ -175,11 +187,23 @@ def enqueue_export_job(
             detail=f"后台导出不可用，请使用同步导出或启动 Celery/Redis（{e}）",
         ) from e
 
+    spend(
+        db,
+        org,
+        cost,
+        reason="export",
+        created_by_id=current_user.id,
+        ref_type="export_job",
+        ref_id=str(async_result.id),
+    )
+    db.commit()
+
     return {
         "job_id": async_result.id,
         "status": "queued",
         "project_id": project_id,
         "format": fmt,
+        "credits_charged": cost if org is not None else 0,
     }
 
 

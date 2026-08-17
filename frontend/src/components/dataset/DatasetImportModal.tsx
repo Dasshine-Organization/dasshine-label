@@ -5,7 +5,7 @@ import api from '../../services/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ImportMethod = 'url' | 'text' | 'local_files' | 'zip' | 'coco' | 'yolo' | 'csv' | 'jsonl' | 'embodied'
+type ImportMethod = 'url' | 'text' | 'local_files' | 'zip' | 'coco' | 'yolo' | 'csv' | 'jsonl' | 'embodied' | 'storage'
 
 const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,.bmp,.tiff,.gif'
 const DEFAULT_FILE_SERVER =
@@ -113,6 +113,13 @@ const METHODS: { id: ImportMethod; label: string; desc: string; icon: JSX.Elemen
     color: '#f97316',
     forCategories: ['embodied'],
     icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><circle cx="8" cy="8" r="5"/><path d="M8 5v3l2 1" strokeLinecap="round"/></svg>,
+  },
+  {
+    id: 'storage',
+    label: '存储目录',
+    desc: '浏览 local / S3 前缀并批量导入',
+    color: '#94a3b8',
+    icon: <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4"><path d="M2 5.5A2.5 2.5 0 014.5 3h7A2.5 2.5 0 0114 5.5v5A2.5 2.5 0 0111.5 13h-7A2.5 2.5 0 012 10.5v-5z"/><path d="M5 8h6M8 5v6" strokeLinecap="round"/></svg>,
   },
 ]
 
@@ -388,6 +395,9 @@ export default function DatasetImportModal({ projectId, projectName, category, o
   const [importAnns, setImportAnns] = useState(true)
   const [goldenRatio, setGoldenRatio] = useState(5)
   const [priority, setPriority] = useState(5)
+  const [storagePrefix, setStoragePrefix] = useState('projects/')
+  const [browseItems, setBrowseItems] = useState<Array<{ key: string; size?: number; url?: string; is_dir?: boolean }>>([])
+  const [browseBusy, setBrowseBusy] = useState(false)
 
   // Filter methods by category
   const availableMethods = METHODS.filter(m =>
@@ -548,6 +558,16 @@ export default function DatasetImportModal({ projectId, projectName, category, o
         form.append('priority', String(priority))
         const { data } = await api.post(`/projects/${projectId}/import/embodied`, form, {
           headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        res = data
+      } else if (method === 'storage') {
+        const prefix = storagePrefix.trim()
+        if (!prefix) throw new Error('请填写存储前缀')
+        const { data } = await api.post(`/projects/${projectId}/import/from-storage`, {
+          prefix,
+          limit: 500,
+          priority,
+          golden_ratio: goldenRatio / 100,
         })
         res = data
       }
@@ -818,6 +838,56 @@ export default function DatasetImportModal({ projectId, projectName, category, o
                 <p className="text-[10px] text-white/25 leading-relaxed">
                   每个 episode 需含 streams；可选 instruction、success、proprioception（真值关节）、segments。
                 </p>
+              </div>
+            )}
+
+            {method === 'storage' && (
+              <div className="space-y-2">
+                <label className="text-xs text-white/40">存储前缀</label>
+                <div className="flex gap-2">
+                  <input
+                    value={storagePrefix}
+                    onChange={e => setStoragePrefix(e.target.value)}
+                    placeholder="projects/1/ 或 datasets/raw/"
+                    className="flex-1 bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white
+                      placeholder-white/15 focus:outline-none focus:border-[#00d4ff]/40"
+                  />
+                  <button
+                    type="button"
+                    disabled={browseBusy}
+                    onClick={async () => {
+                      setBrowseBusy(true)
+                      try {
+                        const { data } = await api.get('/storage/browse', {
+                          params: { prefix: storagePrefix.trim(), limit: 100 },
+                        })
+                        setBrowseItems(data.items || [])
+                        message.success(`列出 ${data.count ?? 0} 项`)
+                      } catch (e: any) {
+                        message.error(e?.response?.data?.detail ?? '浏览失败')
+                      } finally {
+                        setBrowseBusy(false)
+                      }
+                    }}
+                    className="px-3 py-2 text-xs rounded-lg border border-[#1e1e2e] text-white/60 hover:bg-white/5"
+                  >
+                    {browseBusy ? '…' : '预览'}
+                  </button>
+                </div>
+                <p className="text-[10px] text-white/25">
+                  后端：{storageInfo?.backend || 'local'}
+                  {storageInfo?.hint ? ` · ${storageInfo.hint}` : ''}
+                </p>
+                {browseItems.length > 0 && (
+                  <div className="max-h-36 overflow-auto rounded-lg border border-[#1e1e2e] bg-[#0a0a0f] text-[10px] font-mono text-white/50 p-2 space-y-0.5">
+                    {browseItems.slice(0, 50).map(it => (
+                      <div key={it.key}>
+                        {it.is_dir ? '📁 ' : '📄 '}
+                        {it.key}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

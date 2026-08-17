@@ -57,7 +57,9 @@ def get_descriptor(model_id: str) -> Optional[ModelDescriptor]:
 
 
 def list_catalog() -> List[ModelDescriptor]:
-    return list(MODEL_CATALOG)
+    if settings.DEBUG:
+        return list(MODEL_CATALOG)
+    return [m for m in MODEL_CATALOG if m.provider != ModelProvider.DEMO]
 
 
 def probe_availability(model_id: str) -> tuple[ModelAvailability, str]:
@@ -67,6 +69,8 @@ def probe_availability(model_id: str) -> tuple[ModelAvailability, str]:
         return ModelAvailability.UNAVAILABLE, "未知模型 ID"
 
     if d.provider == ModelProvider.DEMO:
+        if not settings.DEBUG:
+            return ModelAvailability.UNAVAILABLE, "演示模板仅 DEBUG 可用"
         return ModelAvailability.AVAILABLE, "演示模式，无需额外配置"
 
     if d.provider == ModelProvider.LOCAL:

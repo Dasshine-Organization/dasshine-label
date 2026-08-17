@@ -51,13 +51,9 @@ backend/
 │   │   ├── auto_label.py    # 自动标注
 │   │   ├── task_dispatch.py # 任务分发
 │   │   ├── quality_control.py # 质量控制
-│   │   └── export.py
-│   ├── ml/                  # 机器学习
-│   │   ├── __init__.py
-│   │   ├── models/
-│   │   ├── inference.py
-│   │   └── prelabel.py
-│   └── db/                  # 数据库
+│   │   ├── export.py
+│   │   └── prelabel/        # 2D 预标注（YOLO/HF/HTTP）
+│   └── db/                  # 数据库（转发 core.database）
 │       ├── __init__.py
 │       └── session.py
 ├── alembic/                 # 数据库迁移

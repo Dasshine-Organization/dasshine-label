@@ -79,12 +79,30 @@ def import_project_archive(
         if not ok2:
             logger.warning("import finished but quota tight: %s", msg2)
 
+        success = int(data.get("success") or data.get("created") or data.get("imported") or 0)
+        if success > 0 and org is not None:
+            from app.services.org_billing import import_cost, spend
+
+            ok_b, msg_b = spend(
+                db,
+                org,
+                import_cost(success),
+                reason="import",
+                created_by_id=user_id,
+                ref_type="async_import",
+                ref_id=f"{kind}:{project_id}",
+            )
+            if not ok_b:
+                logger.warning("async import charge failed: %s", msg_b)
+            else:
+                db.commit()
+
         logger.info(
             "import done project=%s kind=%s user=%s created=%s",
             project_id,
             kind,
             user_id,
-            data.get("created") or data.get("imported"),
+            success,
         )
         return {
             "status": "completed",
@@ -104,3 +122,88 @@ def import_project_archive(
                 path.unlink()
         except OSError:
             pass
+
+
+@shared_task(bind=True, max_retries=1)
+def import_from_storage_prefix(
+    self,
+    project_id: int,
+    prefix: str,
+    user_id: int,
+    options: dict | None = None,
+):
+    """从存储前缀递归列文件并导入为任务。"""
+    options = options or {}
+    db = SessionLocal()
+    try:
+        from app.models.project import Project
+        from app.services.dataset_service import DatasetImportService
+        from app.services.file_storage import IMAGE_EXTS, FileStorageService
+        from app.services.org_billing import import_cost, spend
+        from app.services.org_quota import check_can_add_tasks
+
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if not project:
+            raise ValueError(f"project {project_id} not found")
+        org = project.organization
+
+        limit = int(options.get("limit") or 500)
+        items = FileStorageService().list_prefix(prefix, max_keys=limit, delimiter=False)
+        exts_raw = options.get("extensions") or list(IMAGE_EXTS)
+        exts = {
+            e.lower() if str(e).startswith(".") else f".{str(e).lower()}"
+            for e in exts_raw
+        }
+        urls = []
+        for it in items:
+            if it.get("is_dir"):
+                continue
+            key = (it.get("key") or "").lower()
+            if not any(key.endswith(ext) for ext in exts):
+                continue
+            if it.get("url"):
+                urls.append(it["url"])
+        if not urls:
+            raise ValueError("前缀下没有匹配的文件")
+
+        ok, msg = check_can_add_tasks(db, org, add_count=len(urls))
+        if not ok:
+            raise ValueError(msg)
+
+        svc = DatasetImportService(db, file_server_base_url=None)
+        result = svc.import_from_urls(
+            project_id,
+            urls,
+            priority=int(options.get("priority") or 5),
+            golden_ratio=float(options.get("golden_ratio") or 0.05),
+        )
+        data = result.to_dict() if hasattr(result, "to_dict") else dict(result)
+        success = int(data.get("success") or 0)
+        if success > 0 and org is not None:
+            ok_b, msg_b = spend(
+                db,
+                org,
+                import_cost(success),
+                reason="import",
+                created_by_id=user_id,
+                ref_type="async_from_storage",
+                ref_id=f"{project_id}:{prefix}",
+            )
+            if ok_b:
+                db.commit()
+            else:
+                logger.warning("from-storage charge failed: %s", msg_b)
+        return {
+            "status": "completed",
+            "project_id": project_id,
+            "kind": "from-storage",
+            "matched": len(urls),
+            "result": data,
+        }
+    except Exception as exc:
+        logger.error("from-storage import failed: %s", exc)
+        if isinstance(exc, ValueError):
+            raise
+        raise self.retry(exc=exc, countdown=30) from exc
+    finally:
+        db.close()

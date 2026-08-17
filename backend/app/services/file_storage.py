@@ -9,13 +9,44 @@ import mimetypes
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from app.core.config import settings
 
 logger = logging.getLogger("dasshine.storage")
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".gif"}
+
+
+def browse_allow_prefixes() -> List[str]:
+    raw = getattr(settings, "STORAGE_BROWSE_ALLOW_PREFIXES", None) or "projects/"
+    out: List[str] = []
+    for part in str(raw).split(","):
+        p = part.strip().strip("/").replace("\\", "/")
+        if p:
+            out.append(p + "/")
+    return out or ["projects/"]
+
+
+def assert_browse_allowed(prefix: str) -> str:
+    """规范化并校验浏览前缀白名单。返回清理后的相对前缀（可无尾斜杠）。"""
+    p = (prefix or "").lstrip("/").replace("\\", "/")
+    allows = browse_allow_prefixes()
+    if not p:
+        return ""
+    # 允许：落在任一白名单下，或为白名单前缀本身
+    ok = False
+    for a in allows:
+        a0 = a.rstrip("/")
+        if p == a0 or p.startswith(a0 + "/") or a0.startswith(p.rstrip("/") + "/") or p.rstrip("/") + "/" == a:
+            ok = True
+            break
+        if p.startswith(a):
+            ok = True
+            break
+    if not ok:
+        raise ValueError(f"前缀不在浏览白名单内（允许: {', '.join(allows)}）")
+    return p
 
 
 def _safe_filename(name: str) -> str:
@@ -60,6 +91,15 @@ class StorageBackend(Protocol):
         ...
 
     def health_check(self) -> Dict[str, Any]:
+        ...
+
+    def list_prefix(
+        self,
+        prefix: str = "",
+        *,
+        max_keys: int = 200,
+        delimiter: bool = True,
+    ) -> List[Dict[str, Any]]:
         ...
 
 
@@ -123,6 +163,86 @@ class LocalStorageBackend:
             "path": str(self.upload_root),
             "public_base": self.base_url,
         }
+
+    def list_prefix(
+        self,
+        prefix: str = "",
+        *,
+        max_keys: int = 200,
+        delimiter: bool = True,
+    ) -> List[Dict[str, Any]]:
+        rel_prefix = assert_browse_allowed(prefix)
+        root = self.upload_root.resolve()
+        base = (root / rel_prefix).resolve() if rel_prefix else root
+        if not str(base).startswith(str(root)):
+            raise ValueError("非法前缀路径")
+        if base.is_symlink():
+            raise ValueError("不允许通过符号链接浏览")
+        if not base.exists():
+            return []
+        out: List[Dict[str, Any]] = []
+        limit = max(1, min(int(max_keys), 1000))
+        if base.is_file():
+            if base.is_symlink():
+                raise ValueError("不允许浏览符号链接文件")
+            rel = base.relative_to(root).as_posix()
+            out.append(
+                {
+                    "key": rel,
+                    "size": base.stat().st_size,
+                    "url": self.url_for_relative(rel),
+                    "is_dir": False,
+                }
+            )
+            return out
+
+        if delimiter:
+            # 单层：子目录 + 文件
+            for child in sorted(base.iterdir()):
+                if len(out) >= limit:
+                    break
+                try:
+                    if child.is_symlink():
+                        continue
+                    if child.is_dir():
+                        rel = child.relative_to(root).as_posix().rstrip("/") + "/"
+                        out.append({"key": rel, "size": 0, "url": None, "is_dir": True})
+                    elif child.is_file():
+                        rel = child.relative_to(root).as_posix()
+                        out.append(
+                            {
+                                "key": rel,
+                                "size": child.stat().st_size,
+                                "url": self.url_for_relative(rel),
+                                "is_dir": False,
+                            }
+                        )
+                except OSError:
+                    continue
+            return out
+
+        for p in sorted(base.rglob("*")):
+            if len(out) >= limit:
+                break
+            try:
+                if p.is_symlink() or p.is_dir():
+                    continue
+                # 确保仍在 root 下
+                resolved = p.resolve()
+                if not str(resolved).startswith(str(root)):
+                    continue
+                rel = resolved.relative_to(root).as_posix()
+                out.append(
+                    {
+                        "key": rel,
+                        "size": resolved.stat().st_size,
+                        "url": self.url_for_relative(rel),
+                        "is_dir": False,
+                    }
+                )
+            except OSError:
+                continue
+        return out
 
 
 class S3StorageBackend:
@@ -215,6 +335,55 @@ class S3StorageBackend:
                 "error": str(e),
             }
 
+    def list_prefix(
+        self,
+        prefix: str = "",
+        *,
+        max_keys: int = 200,
+        delimiter: bool = True,
+    ) -> List[Dict[str, Any]]:
+        user_prefix = assert_browse_allowed(prefix)
+        parts = []
+        if self.prefix:
+            parts.append(self.prefix)
+        if user_prefix:
+            parts.append(user_prefix)
+        full_prefix = "/".join(parts)
+        limit = max(1, min(int(max_keys), 1000))
+        kwargs: Dict[str, Any] = {
+            "Bucket": self.bucket,
+            "MaxKeys": limit,
+        }
+        if full_prefix:
+            # 目录浏览：尾斜杠 + Delimiter；精确文件前缀不加
+            if delimiter and not full_prefix.endswith("/"):
+                # 若像目录则补 /
+                kwargs["Prefix"] = full_prefix + "/"
+            else:
+                kwargs["Prefix"] = full_prefix
+        if delimiter:
+            kwargs["Delimiter"] = "/"
+        resp = self.client.list_objects_v2(**kwargs)
+        out: List[Dict[str, Any]] = []
+        # 去掉桶级公共前缀，返回相对用户前缀的 key（仍含 S3_PREFIX 时保留完整 key 以便 url）
+        for obj in resp.get("Contents") or []:
+            key = obj.get("Key") or ""
+            if not key or key.endswith("/"):
+                continue
+            out.append(
+                {
+                    "key": key,
+                    "size": int(obj.get("Size") or 0),
+                    "url": self._public_url(key),
+                    "is_dir": False,
+                }
+            )
+        for cp in resp.get("CommonPrefixes") or []:
+            pref = cp.get("Prefix") or ""
+            if pref:
+                out.append({"key": pref, "size": 0, "url": None, "is_dir": True})
+        return out
+
 
 def create_storage_backend(file_server_base_url: Optional[str] = None) -> StorageBackend:
     backend = (settings.STORAGE_BACKEND or "local").strip().lower()
@@ -249,6 +418,15 @@ class FileStorageService:
 
     def health_check(self) -> Dict[str, Any]:
         return self.backend.health_check()
+
+    def list_prefix(
+        self,
+        prefix: str = "",
+        *,
+        max_keys: int = 200,
+        delimiter: bool = True,
+    ) -> List[Dict[str, Any]]:
+        return self.backend.list_prefix(prefix, max_keys=max_keys, delimiter=delimiter)
 
 
 def storage_public_info() -> Dict[str, Any]:

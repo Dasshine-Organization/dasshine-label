@@ -36,8 +36,11 @@ def _create_provider(model_id: str) -> BasePrelabelProvider:
 
         return HttpPrelabelProvider()
     if model_id == "demo_template":
+        from app.core.config import settings
         from app.services.prelabel.providers.demo import DemoTemplateProvider
 
+        if not settings.DEBUG:
+            raise ValueError("演示模板仅 DEBUG 可用")
         return DemoTemplateProvider()
     raise ValueError(f"未知模型: {model_id}")
 

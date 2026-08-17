@@ -4,6 +4,7 @@ import { notifyDraftSaved } from '../utils/draftSaveNotify'
 import useAuthStore from '../store/authStore'
 import { isDemoTaskId } from '../utils/annotationRoutes'
 import { useTaskLock } from './useTaskLock'
+import { useYjsCollab } from './useYjsCollab'
 import {
   modalityApi,
   offlineAudioWorkspace,
@@ -96,6 +97,21 @@ export function useModalityWorkspace(
     Boolean(token && /^\d+$/.test(taskId) && !isDemoTaskId(taskId)),
   )
 
+  const applyingRemote = useRef(false)
+  const onRemoteDraft = useCallback((draft: Record<string, unknown>) => {
+    if (applyingRemote.current) return
+    applyingRemote.current = true
+    try {
+      setPayload(draft as ModalityPayload)
+      setDirty(true)
+    } finally {
+      applyingRemote.current = false
+    }
+  }, [])
+
+  const collabEnabled = Boolean(token && /^\d+$/.test(taskId) && !isDemoTaskId(taskId))
+  const { peers, connected, pushDraft } = useYjsCollab(taskId, collabEnabled, onRemoteDraft)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -116,21 +132,29 @@ export function useModalityWorkspace(
           setLastSavedAt(data.draft_updated_at ?? local?.savedAt ?? null)
         }
         setUseBackend(true)
-      } else {
+      } else if (isDemoTaskId(taskId)) {
         const data = offlineFor(kind, taskId, annTypeHint)
         const local = readLocalDraft(kind, taskId)
         setWs(data)
         setPayload(local?.payload ?? data.payload)
         setLastSavedAt(local?.savedAt ?? null)
         setUseBackend(false)
+      } else {
+        throw new Error('未登录或无效任务')
       }
-    } catch {
-      const data = offlineFor(kind, taskId, annTypeHint)
-      const local = readLocalDraft(kind, taskId)
-      setWs(data)
-      setPayload(local?.payload ?? data.payload)
-      setLastSavedAt(local?.savedAt ?? null)
-      setUseBackend(false)
+    } catch (e) {
+      if (isDemoTaskId(taskId)) {
+        const data = offlineFor(kind, taskId, annTypeHint)
+        const local = readLocalDraft(kind, taskId)
+        setWs(data)
+        setPayload(local?.payload ?? data.payload)
+        setLastSavedAt(local?.savedAt ?? null)
+        setUseBackend(false)
+      } else {
+        setWs(null)
+        message.error(e instanceof Error ? e.message : '加载工作台失败')
+        setUseBackend(false)
+      }
     } finally {
       setLoading(false)
     }
@@ -168,16 +192,18 @@ export function useModalityWorkspace(
         message.warning('任务已被他人占用，暂不可编辑')
         return
       }
+      if (applyingRemote.current) return
       setPayload(prev => {
         if (!prev) return prev
         const next = typeof patch === 'function' ? patch(prev) : { ...prev, ...patch }
         setDirty(true)
         if (saveTimer.current) clearTimeout(saveTimer.current)
         saveTimer.current = setTimeout(() => persist(next), 2000)
+        pushDraft(next as Record<string, unknown>)
         return next
       })
     },
-    [persist, lockBlocked],
+    [persist, lockBlocked, pushDraft],
   )
 
   const submit = useCallback(async () => {
@@ -211,5 +237,7 @@ export function useModalityWorkspace(
     reload: load,
     lock,
     lockBlocked,
+    peers,
+    connected,
   }
 }

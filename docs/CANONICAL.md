@@ -20,7 +20,7 @@
 | 业务入口 | `/projects?category=`、`/tasks?category=`、真实 `project.id` → `/projects/:id/tasks` |
 | 演示入口 | 硬编码 task（1001/1002/3001/demo…），仅开发或 `VITE_ENABLE_DEMO_ENTRIES=true` |
 
-`DEMO_TASK_IDS` 仍用于工作台识别离线样例数据，但不再作为 Dashboard 默认跳转目标。
+`DEMO_TASK_IDS` 仅在 `isDemoEntriesEnabled()`（DEV 或 `VITE_ENABLE_DEMO_ENTRIES=true`）时生效，避免与真实任务 ID 碰撞。
 
 ## P1 数据约定
 
@@ -33,7 +33,7 @@
 
 - **审核**：`/review` → `GET /quality/queue` + `POST /quality/review`；驳回回流 `annotating`
 - **导出**：项目任务页「导出数据」→ 按类别三种主流格式（见 `docs/export_formats.md`）→ `GET /export/{id}?format=…&status=approved`
-- **预标注**：2D 工作台 `demo_template` / YOLO（`/tasks/{id}/prelabel/*`）；LLM/OCR auto-label 返回 501
+- **预标注**：2D 工作台 YOLO / HF / HTTP（`/tasks/{id}/prelabel/*`）；`demo_template` 仅 DEBUG；LLM/OCR auto-label 返回 **501**
 - **分发可观测**：`GET /projects/{id}/dispatch-logs` + 项目任务页最近分发
 
 ## P4 平台化
@@ -93,4 +93,19 @@
 - 黄金题轮换：`quality_config.golden_rotation` + Celery beat `rotate_golden_tasks`
 - 作业/存储硬化：Compose **默认**起 `celery` + `celery-beat`；异步导出经 `FileStorageService`（local/S3）
 - 租户硬隔离：`claim` / `GET /tasks` PENDING 池 / 审核队列按 `active_org`；`GET /projects/{id}` 须组织成员或创建者
-- **P11：** 完整 CRDT / Yjs 共编、计费扣款、目录挂载
+- 安全硬化：JWT 默认 12h（`ACCESS_TOKEN_EXPIRE_MINUTES`）；`RateLimitMiddleware` 分层限流（auth/claim/import/api），见 `docs/deploy.md`
+
+## P11 共编 · 计费 · 存储挂载
+
+- 计划：`docs/p11_collab_billing_mount.md`
+- Yjs 中继：`WS /api/v1/ws/tasks/{id}/collab` + `GET/PUT /tasks/{id}/collab-doc`；2D 工作台 presence
+- 计费：`quota.credits` + `org_billing_ledger`；导入/导出口；`GET/POST /orgs/{id}/billing*`
+- 目录挂载：`GET /storage/browse` + `POST /projects/{id}/import/from-storage`
+
+## P12 Stripe · 多模态共编 · 挂载硬化
+
+- 计划：`docs/p12_stripe_collab_mount.md`
+- Stripe Checkout 积分包 + webhook 幂等入账；侧栏充值
+- 2D 草稿 CRDT；文本/音视频/OCR/多模态 presence+payload；Redis 扇出
+- 浏览白名单 / 禁 symlink / S3 Delimiter；`from-storage/jobs`
+- **P13：** Stripe Subscriptions / Customer Portal、Automerge、内核 NFS/FUSE、点云/具身逐像素 CRDT

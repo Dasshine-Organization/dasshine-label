@@ -11,7 +11,9 @@ import Canvas2D from '../components/annotation/2d/Canvas2D'
 import RightPanel from '../components/annotation/RightPanel'
 import ExportPanel from '../components/annotation/ExportPanel'
 import TaskLockBanner from '../components/TaskLockBanner'
+import CollabPresenceBar from '../components/CollabPresenceBar'
 import { useTaskLock } from '../hooks/useTaskLock'
+import { useYjsCollab } from '../hooks/useYjsCollab'
 import useAuthStore from '../store/authStore'
 import {
   canAddOrEditLabelClasses,
@@ -84,17 +86,7 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   approved: '已通过',
 }
 
-const FALLBACK_MODELS: PrelabelModelInfo[] = [
-  {
-    id: 'demo_template',
-    label: '演示模板（离线）',
-    provider: 'demo',
-    kind: 'supervised',
-    status: 'available',
-    status_message: '未连接后端时使用',
-    loaded: false,
-  },
-]
+const FALLBACK_MODELS: PrelabelModelInfo[] = []
 
 function statusBadgeClass(status: PrelabelModelInfo['status']): string {
   switch (status) {
@@ -125,7 +117,11 @@ export default function ImageAnnotation() {
   const [taskImageUrl, setTaskImageUrl] = useState<string | null>(null)
   const [taskImageName, setTaskImageName] = useState<string | null>(null)
   const [, setTaskLoading] = useState(false)
-  const imageSources = taskImageUrl ? [taskImageUrl] : MOCK_IMAGES
+  const imageSources = useMemo(() => {
+    if (taskImageUrl) return [taskImageUrl]
+    if (isDemoTaskId(taskId ?? '')) return MOCK_IMAGES
+    return [] as string[]
+  }, [taskImageUrl, taskId])
   const frameCount = imageSources.length
   const [currentIdx, setCurrentIdx] = useState(0)
   const [hydrated, setHydrated] = useState(false)
@@ -142,6 +138,26 @@ export default function ImageAnnotation() {
     !isDemoTaskId(taskId)
 
   const { lock, blocked: lockBlocked } = useTaskLock(taskId, useBackendTask)
+  const { annotations2d, labelClasses } = useAnnotationStore()
+  const { peers, connected, pushDraft } = useYjsCollab(
+    taskId,
+    useBackendTask,
+    useCallback((draft: Record<string, unknown>) => {
+      const anns = draft.annotations2d
+      if (Array.isArray(anns)) {
+        useAnnotationStore.setState({ annotations2d: anns as Annotation2D[] })
+      }
+    }, []),
+  )
+
+  useEffect(() => {
+    if (!useBackendTask || !connected) return
+    pushDraft({
+      annotations2d,
+      labelClasses,
+      frameIndex: currentIdx,
+    })
+  }, [annotations2d, labelClasses, currentIdx, useBackendTask, connected, pushDraft])
 
   const [models, setModels] = useState<PrelabelModelInfo[]>(FALLBACK_MODELS)
   const [modelsLoading, setModelsLoading] = useState(false)
@@ -149,11 +165,10 @@ export default function ImageAnnotation() {
   const [modelLoading, setModelLoading] = useState(false)
   const [loadedModelId, setLoadedModelId] = useState<string | null>(null)
   const [loadStatusMessage, setLoadStatusMessage] = useState<string | null>(null)
-  const [selectedModelId, setSelectedModelId] = useState<string>('demo_template')
+  const [selectedModelId, setSelectedModelId] = useState<string>('')
   const [useBackendPrelabel, setUseBackendPrelabel] = useState(false)
 
   const [showExport, setShowExport] = useState(false)
-  const { annotations2d, labelClasses } = useAnnotationStore()
   const { hasDraftForFrame } = useDraftManager(taskId)
 
   const notifyTaskStatus = useCallback(
@@ -483,13 +498,13 @@ export default function ImageAnnotation() {
           content: `${data.message || '预标注完成'}（${src}）· ${data.annotations2d.length} 框 · 置信 ${(data.confidence * 100).toFixed(0)}%`,
           duration: 3.5,
         })
-      } else if (loadedModelId === 'demo_template') {
+      } else if (loadedModelId === 'demo_template' && isDemoTaskId(taskId ?? '')) {
         const anns = offlineDemoAnnotations(currentIdx)
         useAnnotationStore.setState({ annotations2d: anns })
         useAnnotationStore.getState().markDirty()
         message.success({ content: `离线演示预标注 · ${anns.length} 个候选框`, duration: 2.5 })
       } else {
-        message.warning('请登录并连接后端以使用真实预标注模型')
+        message.warning('请选择已配置的预标注模型（YOLO / HF / HTTP）')
       }
     } catch (err: unknown) {
       const detail =
@@ -531,6 +546,7 @@ export default function ImageAnnotation() {
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden select-none">
       <TaskLockBanner lock={lock} blocked={lockBlocked} />
+      <CollabPresenceBar peers={peers} connected={connected} />
       <AnnotationTopBar
         taskName={
           taskImageName

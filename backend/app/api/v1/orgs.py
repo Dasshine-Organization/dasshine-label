@@ -30,6 +30,12 @@ class OrgQuotaUpdate(BaseModel):
     max_projects: Optional[int] = Field(None, ge=0)
     max_tasks: Optional[int] = Field(None, ge=0)
     max_members: Optional[int] = Field(None, ge=0)
+    credits: Optional[int] = Field(None, ge=0)
+
+
+class OrgTopupBody(BaseModel):
+    amount: int = Field(..., ge=1, le=10_000_000)
+    note: Optional[str] = None
 
 
 @router.get("")
@@ -103,6 +109,58 @@ def update_org_quota(
     db.commit()
     db.refresh(org)
     return OrganizationService.to_dict(org, db)
+
+
+@router.get("/{org_id}/billing")
+def get_org_billing(
+    org_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.org_billing import get_credits, list_ledger
+
+    svc = OrganizationService(db)
+    org = svc.get(org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="组织不存在")
+    if not current_user.is_admin and not svc.user_in_org(current_user.id, org_id):
+        raise HTTPException(status_code=403, detail="无权查看计费")
+    return {
+        "organization_id": org_id,
+        "credits": get_credits(org),
+        "quota": normalize_quota(getattr(org, "quota", None)),
+        "ledger": list_ledger(db, org_id, limit=limit),
+    }
+
+
+@router.post("/{org_id}/billing/topup")
+def topup_org_billing(
+    org_id: int,
+    body: OrgTopupBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.org_billing import get_credits, topup
+
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="仅管理员可充值")
+    svc = OrganizationService(db)
+    org = svc.get(org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="组织不存在")
+    row = topup(db, org, body.amount, created_by_id=current_user.id, note=body.note)
+    db.commit()
+    return {
+        "ok": True,
+        "credits": get_credits(org),
+        "entry": {
+            "id": row.id,
+            "delta": row.delta,
+            "balance_after": row.balance_after,
+            "reason": row.reason,
+        },
+    }
 
 
 @router.get("/{org_id}/members")

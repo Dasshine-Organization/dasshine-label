@@ -4,7 +4,6 @@ import { v4 as uuid } from 'uuid'
 import useAnnotationStore, { Box3D } from '../../../store/annotationStore'
 import type { View3DType } from '../../../types/annotation3d'
 import {
-  generateDemoPointCloud,
   applyAnnotationColors,
   type PointCloudBounds,
   type PointCloudPayload,
@@ -150,10 +149,16 @@ export default function Scene3DWorkspace({
     async function load() {
       setLoadingCloud(true)
       setLoadError(null)
+      if (!assetUrl) {
+        if (!cancelled) {
+          setCloud(null)
+          setLoadError('未提供点云地址')
+          setLoadingCloud(false)
+        }
+        return
+      }
       try {
-        const data = assetUrl
-          ? await loadPointCloudAsset(assetUrl)
-          : generateDemoPointCloud(20000)
+        const data = await loadPointCloudAsset(assetUrl)
         if (cancelled) return
         baseColorsRef.current = data.colors
         setCloud(data)
@@ -164,12 +169,8 @@ export default function Scene3DWorkspace({
       } catch (e) {
         if (cancelled) return
         console.error(e)
+        setCloud(null)
         setLoadError(e instanceof Error ? e.message : '点云加载失败')
-        const fallback = generateDemoPointCloud(20000)
-        baseColorsRef.current = fallback.colors
-        setCloud(fallback)
-        orbitRef.current = createDefaultOrbit(fallback.bounds)
-        defaultOrbitRRef.current = orbitRef.current!.spherical.r
       } finally {
         if (!cancelled) setLoadingCloud(false)
       }
