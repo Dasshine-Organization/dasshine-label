@@ -53,6 +53,18 @@ const icons: Record<string, JSX.Element> = {
       <line x1="8" y1="16" x2="17" y2="16" strokeLinecap="round"/>
     </svg>
   ),
+  brush: (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+      <path d="M4 16c2-1 3-3 3-5 0-2 2-4 5-4l2 2c0 3-2 5-4 5-2 0-4 1-6 2z" strokeLinejoin="round"/>
+      <path d="M12 7l3-3 2 2-3 3" strokeLinejoin="round"/>
+    </svg>
+  ),
+  point: (
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+      <circle cx="10" cy="10" r="2" fill="currentColor"/>
+      <circle cx="10" cy="10" r="6"/>
+    </svg>
+  ),
   orbit: (
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
       <ellipse cx="10" cy="10" rx="8" ry="4" transform="rotate(-20 10 10)"/>
@@ -77,6 +89,7 @@ const TOOLS_2D: { id: Tool2D; label: string; hotkey?: string }[] = [
   { id: 'polygon',  label: 'Polygon',          hotkey: 'P' },
   { id: 'polyline', label: 'Polyline',         hotkey: 'L' },
   { id: 'keypoint', label: 'Keypoint',         hotkey: 'K' },
+  { id: 'brush',    label: 'Pixel Brush',      hotkey: 'G' },
   { id: 'pan',      label: 'Pan (Alt+drag)',   hotkey: 'H' },
   { id: 'eraser',   label: 'Eraser',           hotkey: 'E' },
 ];
@@ -84,6 +97,7 @@ const TOOLS_2D: { id: Tool2D; label: string; hotkey?: string }[] = [
 const TOOLS_3D: { id: Tool3D; label: string; hotkey?: string }[] = [
   { id: 'select', label: 'Select',        hotkey: 'V' },
   { id: 'box3d',  label: '3D Box',        hotkey: 'B' },
+  { id: 'point',  label: 'Point Label',   hotkey: 'G' },
   { id: 'orbit',  label: 'Orbit Camera',  hotkey: 'O' },
   { id: 'pan',    label: 'Pan Camera',    hotkey: 'H' },
 ];

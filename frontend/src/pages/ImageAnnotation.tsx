@@ -138,7 +138,7 @@ export default function ImageAnnotation() {
     !isDemoTaskId(taskId)
 
   const { lock, blocked: lockBlocked } = useTaskLock(taskId, useBackendTask)
-  const { annotations2d, labelClasses } = useAnnotationStore()
+  const { annotations2d, labelClasses, pixelLabels } = useAnnotationStore()
   const { peers, connected, pushDraft } = useYjsCollab(
     taskId,
     useBackendTask,
@@ -146,6 +146,11 @@ export default function ImageAnnotation() {
       const anns = draft.annotations2d
       if (Array.isArray(anns)) {
         useAnnotationStore.setState({ annotations2d: anns as Annotation2D[] })
+      }
+      if (draft.pixelLabels && typeof draft.pixelLabels === 'object') {
+        useAnnotationStore.setState({
+          pixelLabels: draft.pixelLabels as Record<string, string>,
+        })
       }
     }, []),
   )
@@ -156,8 +161,9 @@ export default function ImageAnnotation() {
       annotations2d,
       labelClasses,
       frameIndex: currentIdx,
+      pixelLabels,
     })
-  }, [annotations2d, labelClasses, currentIdx, useBackendTask, connected, pushDraft])
+  }, [annotations2d, labelClasses, currentIdx, pixelLabels, useBackendTask, connected, pushDraft])
 
   const [models, setModels] = useState<PrelabelModelInfo[]>(FALLBACK_MODELS)
   const [modelsLoading, setModelsLoading] = useState(false)

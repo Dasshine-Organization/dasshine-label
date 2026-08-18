@@ -44,8 +44,8 @@ export interface LabelClass {
   hotkey?: string
 }
 
-export type Tool2D = 'select' | 'bbox' | 'polygon' | 'polyline' | 'keypoint' | 'pan' | 'eraser'
-export type Tool3D = 'select' | 'box3d' | 'orbit' | 'pan'
+export type Tool2D = 'select' | 'bbox' | 'polygon' | 'polyline' | 'keypoint' | 'pan' | 'eraser' | 'brush'
+export type Tool3D = 'select' | 'box3d' | 'orbit' | 'pan' | 'point'
 
 // ── Draft = one frame's saved state ──────────────────────────────────────────
 
@@ -82,6 +82,8 @@ interface AnnotationState {
   boxes3d: Box3D[]
   activeTool3d: Tool3D
   selectedIds3d: string[]
+  pixelLabels: Record<string, string>
+  pointLabels: Record<string, string>
 
   // Shared
   labelClasses: LabelClass[];
@@ -117,6 +119,10 @@ interface AnnotationState {
   deleteBox3d: (ids: string[]) => void;
   selectBoxes3d: (ids: string[]) => void;
   clearSelection3d: () => void;
+  setPixelLabels: (pixels: Record<string, string>) => void;
+  paintPixels: (next: Record<string, string>) => void;
+  setPointLabels: (labels: Record<string, string>) => void;
+  setPointLabel: (index: number, label: string | null) => void;
 
   // Shared
   setActiveLabel: (label: string) => void;
@@ -176,6 +182,8 @@ const useAnnotationStore = create<AnnotationState>()(
     boxes3d: [],
     activeTool3d: 'box3d',
     selectedIds3d: [],
+    pixelLabels: {},
+    pointLabels: {},
     labelClasses: DEFAULT_LABELS,
     activeLabel: 'car',
     zoom: 1,
@@ -311,6 +319,24 @@ const useAnnotationStore = create<AnnotationState>()(
 
     selectBoxes3d: (ids) => set((s) => { s.selectedIds3d = ids; }),
     clearSelection3d: () => set((s) => { s.selectedIds3d = []; }),
+
+    setPixelLabels: (pixels) => set((s) => {
+      s.pixelLabels = pixels
+      s.autoSaveMeta.isDirty = true
+    }),
+    paintPixels: (next) => set((s) => {
+      s.pixelLabels = next
+      s.autoSaveMeta.isDirty = true
+    }),
+    setPointLabels: (labels) => set((s) => {
+      s.pointLabels = labels
+      s.autoSaveMeta.isDirty = true
+    }),
+    setPointLabel: (index, label) => set((s) => {
+      if (label == null || label === '') delete s.pointLabels[String(index)]
+      else s.pointLabels[String(index)] = label
+      s.autoSaveMeta.isDirty = true
+    }),
 
     setActiveLabel: (label) => set((s) => { s.activeLabel = label; }),
     setZoom: (zoom) => set((s) => { s.zoom = Math.max(0.1, Math.min(10, zoom)); }),

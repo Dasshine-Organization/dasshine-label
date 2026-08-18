@@ -108,4 +108,17 @@
 - Stripe Checkout 积分包 + webhook 幂等入账；侧栏充值
 - 2D 草稿 CRDT；文本/音视频/OCR/多模态 presence+payload；Redis 扇出
 - 浏览白名单 / 禁 symlink / S3 Delimiter；`from-storage/jobs`
-- **P13：** Stripe Subscriptions / Customer Portal、Automerge、内核 NFS/FUSE、点云/具身逐像素 CRDT
+
+## P13 订阅 · 虚拟挂载 · 点云/具身共编
+
+- 计划：`docs/p13_subscriptions_mounts_collab.md`
+- Stripe Subscriptions + Customer Portal；`invoice.paid` 月积分；侧栏订阅/管理
+- 组织 `storage_mounts` 虚拟挂载注册表；挂载浏览 / `from-storage` 的 `mount_id`
+- 点云 / 具身粗粒度共编（现为 Automerge 对象 Map）+ presence
+
+## P14 Automerge · NFS/FUSE · 逐点像素 CRDT · Connect/税务
+
+- 计划：`docs/p14_automerge_fuse_connect.md`
+- 共编引擎 Automerge；稀疏像素 / 逐点标签 CRDT；2D 画笔与点云 `point` 工具
+- `fuse` / `nfs` 挂载；内核 mount 探测与可选执行；`python -m app.cli.fuse_mount`
+- Stripe Tax + Connect Express 入驻与 destination charge

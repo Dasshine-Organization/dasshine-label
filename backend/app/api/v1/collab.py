@@ -1,5 +1,5 @@
 """
-Yjs 共编：WebSocket 中继 + HTTP 快照兜底。
+Automerge 共编：WebSocket 中继 + HTTP 快照兜底。
 """
 
 from __future__ import annotations
@@ -33,7 +33,8 @@ router = APIRouter(tags=["collab"])
 
 
 class CollabDocBody(BaseModel):
-    state_b64: str = Field(..., description="Y.encodeStateAsUpdate base64")
+    state_b64: str = Field(..., description="Automerge.save base64")
+    engine: str = Field(default="automerge")
 
 
 def _user_from_token(db: Session, token: str) -> Optional[User]:
@@ -60,7 +61,11 @@ def get_collab_doc(
     if not can_access_task_workspace(db, task, current_user):
         raise HTTPException(status_code=403, detail="无权访问")
     state = load_collab_state(db, task_id)
-    return {"task_id": task_id, "state_b64": b64(state) if state else ""}
+    return {
+        "task_id": task_id,
+        "engine": "automerge",
+        "state_b64": b64(state) if state else "",
+    }
 
 
 @router.put("/tasks/{task_id}/collab-doc")
@@ -119,6 +124,7 @@ async def collab_ws(
             json.dumps(
                 {
                     "type": "init",
+                    "engine": "automerge",
                     "state_b64": b64(init_state) if init_state else "",
                     "presence": room.presence(),
                 },

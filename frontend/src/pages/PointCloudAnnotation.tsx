@@ -11,8 +11,11 @@ import AnnotationToolbar from '../components/annotation/AnnotationToolbar'
 import Scene3DWorkspace from '../components/annotation/3d/Scene3DWorkspace'
 import RightPanel from '../components/annotation/RightPanel'
 import ExportPanel from '../components/annotation/ExportPanel'
+import CollabPresenceBar from '../components/CollabPresenceBar'
 import useAuthStore from '../store/authStore'
+import type { Box3D } from '../store/annotationStore'
 import { taskApi } from '../services/api'
+import { useYjsCollab } from '../hooks/useYjsCollab'
 import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
 import { useProjectAnnotationQueue } from '../hooks/useProjectAnnotationQueue'
 import { emitProjectTaskStatus } from '../utils/projectTaskStatus'
@@ -47,7 +50,7 @@ export default function PointCloudAnnotation() {
   const [hydrated, setHydrated] = useState(false)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [pointCloudUrl, setPointCloudUrl] = useState<string | undefined>(undefined)
-  const { boxes3d, labelClasses } = useAnnotationStore()
+  const { boxes3d, labelClasses, pointLabels } = useAnnotationStore()
 
   const numericTaskId = Number(taskId)
   const useBackendTask =
@@ -55,6 +58,27 @@ export default function PointCloudAnnotation() {
     Number.isFinite(numericTaskId) &&
     numericTaskId > 0 &&
     !isDemoTaskId(taskId)
+
+  const { peers, connected, pushDraft } = useYjsCollab(
+    taskId,
+    useBackendTask,
+    useCallback((draft: Record<string, unknown>) => {
+      const boxes = draft.boxes3d
+      if (Array.isArray(boxes)) {
+        useAnnotationStore.setState({ boxes3d: boxes as Box3D[] })
+      }
+      if (draft.pointLabels && typeof draft.pointLabels === 'object') {
+        useAnnotationStore.setState({
+          pointLabels: draft.pointLabels as Record<string, string>,
+        })
+      }
+    }, []),
+  )
+
+  useEffect(() => {
+    if (!useBackendTask || !connected) return
+    pushDraft({ boxes3d, labelClasses, pointLabels })
+  }, [boxes3d, labelClasses, pointLabels, useBackendTask, connected, pushDraft])
 
   const workStartRef = useRef(Date.now())
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -279,6 +303,7 @@ export default function PointCloudAnnotation() {
 
   return (
     <div className="flex flex-col h-screen bg-[#0a0a0f] text-white overflow-hidden select-none">
+      <CollabPresenceBar peers={peers} connected={connected} />
       <AnnotationTopBar
         taskName={`Task #${taskId} — 自动驾驶点云标注（路口场景）`}
         totalImages={1}

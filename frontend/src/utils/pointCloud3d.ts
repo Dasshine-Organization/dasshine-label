@@ -126,45 +126,59 @@ export function applyAnnotationColors(
   positions: Float32Array,
   baseColors: Float32Array,
   boxes: Box3D[],
+  pointLabels: Record<string, string> = {},
+  labelColors: Record<string, string> = {},
 ): Float32Array {
   const n = positions.length / 3
   const colors = new Float32Array(baseColors.length)
   colors.set(baseColors)
 
   const visible = boxes.filter((b) => b.visible)
-  if (visible.length === 0) return colors
-
   const insideMask = new Uint8Array(n)
+  const hasBoxes = visible.length > 0
 
-  for (let i = 0; i < n; i++) {
-    const px = positions[i * 3]
-    const py = positions[i * 3 + 1]
-    const pz = positions[i * 3 + 2]
+  if (hasBoxes) {
+    for (let i = 0; i < n; i++) {
+      const px = positions[i * 3]
+      const py = positions[i * 3 + 1]
+      const pz = positions[i * 3 + 2]
 
-    for (let j = visible.length - 1; j >= 0; j--) {
-      const box = visible[j]
-      if (pointInBox3D(px, py, pz, box)) {
-        insideMask[i] = 1
-        const [r, g, b] = hexToRgb(box.color)
+      for (let j = visible.length - 1; j >= 0; j--) {
+        const box = visible[j]
+        if (pointInBox3D(px, py, pz, box)) {
+          insideMask[i] = 1
+          const [r, g, b] = hexToRgb(box.color)
+          const bi = i * 3
+          const br = baseColors[bi]
+          const bg = baseColors[bi + 1]
+          const bb = baseColors[bi + 2]
+          colors[bi] = Math.min(1, (r * HIGHLIGHT_STRENGTH + br * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
+          colors[bi + 1] = Math.min(1, (g * HIGHLIGHT_STRENGTH + bg * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
+          colors[bi + 2] = Math.min(1, (b * HIGHLIGHT_STRENGTH + bb * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
+          break
+        }
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      if (!insideMask[i]) {
         const bi = i * 3
-        const br = baseColors[bi]
-        const bg = baseColors[bi + 1]
-        const bb = baseColors[bi + 2]
-        colors[bi] = Math.min(1, (r * HIGHLIGHT_STRENGTH + br * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
-        colors[bi + 1] = Math.min(1, (g * HIGHLIGHT_STRENGTH + bg * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
-        colors[bi + 2] = Math.min(1, (b * HIGHLIGHT_STRENGTH + bb * (1 - HIGHLIGHT_STRENGTH)) * HIGHLIGHT_BRIGHTEN)
-        break
+        colors[bi] *= OUTSIDE_DIM
+        colors[bi + 1] *= OUTSIDE_DIM
+        colors[bi + 2] *= OUTSIDE_DIM
       }
     }
   }
 
-  for (let i = 0; i < n; i++) {
-    if (!insideMask[i]) {
-      const bi = i * 3
-      colors[bi] *= OUTSIDE_DIM
-      colors[bi + 1] *= OUTSIDE_DIM
-      colors[bi + 2] *= OUTSIDE_DIM
-    }
+  for (const [idx, label] of Object.entries(pointLabels)) {
+    const i = Number(idx)
+    if (!Number.isFinite(i) || i < 0 || i >= n) continue
+    const hex = labelColors[label] || '#f59e0b'
+    const [r, g, b] = hexToRgb(hex)
+    const bi = i * 3
+    colors[bi] = r
+    colors[bi + 1] = g
+    colors[bi + 2] = b
   }
 
   return colors

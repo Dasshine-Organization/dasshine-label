@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import useAnnotationStore, { Annotation2D, Point2D } from '../../../store/annotationStore';
+import { paintDisk, parsePixelKey } from '../../../utils/pixelCrdt';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -63,11 +64,12 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
 
   const store = useAnnotationStore();
   const {
-    annotations2d, activeTool2d, selectedIds2d, labelClasses,
+    annotations2d, activeTool2d, selectedIds2d, labelClasses, pixelLabels,
     zoom, showLabels, showConfidence, opacity,
     addAnnotation2d, updateAnnotation2d, selectAnnotations2d, clearSelection2d,
-    deleteAnnotation2d, setZoom,
+    deleteAnnotation2d, setZoom, paintPixels,
   } = store;
+  const paintingRef = useRef(false);
 
   const getLabelColor = useCallback((name: string) => {
     return labelClasses.find((l) => l.name === name)?.color ?? '#00d4ff';
@@ -97,7 +99,7 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => { scheduleRender(); }, [annotations2d, selectedIds2d, showLabels, showConfidence, opacity, canvasSize]);
+  useEffect(() => { scheduleRender(); }, [annotations2d, selectedIds2d, showLabels, showConfidence, opacity, canvasSize, pixelLabels]);
 
   function fitImage() {
     const img = imgRef.current;
@@ -148,7 +150,18 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
       ctx.drawImage(img, t.offsetX, t.offsetY, img.width * t.scale, img.height * t.scale);
     }
 
-    const { annotations2d: anns, selectedIds2d: sel, showLabels: sl, showConfidence: sc, opacity: op } = useAnnotationStore.getState();
+    const { annotations2d: anns, selectedIds2d: sel, showLabels: sl, showConfidence: sc, opacity: op, pixelLabels: pix, labelClasses: lcs } = useAnnotationStore.getState();
+
+    if (img && pix && Object.keys(pix).length > 0) {
+      const t = transformRef.current;
+      const colorOf = (name: string) => lcs.find((l) => l.name === name)?.color ?? '#00d4ff';
+      for (const [key, label] of Object.entries(pix)) {
+        const [ix, iy] = parsePixelKey(key);
+        if (!Number.isFinite(ix) || !Number.isFinite(iy)) continue;
+        ctx.fillStyle = hexToRgba(colorOf(label), Math.max(op, 0.45));
+        ctx.fillRect(ix * t.scale + t.offsetX, iy * t.scale + t.offsetY, Math.max(1, t.scale), Math.max(1, t.scale));
+      }
+    }
 
     // draw existing annotations
     anns.forEach((ann) => {
@@ -409,6 +422,25 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
     if (tool === 'eraser') {
       const hit = hitTest(sp.x, sp.y);
       if (hit) deleteAnnotation2d([hit]);
+      else {
+        paintingRef.current = true;
+        const next = paintDisk(useAnnotationStore.getState().pixelLabels, ip.x, ip.y, 6, '', true);
+        paintPixels(next);
+      }
+      return;
+    }
+
+    if (tool === 'brush') {
+      paintingRef.current = true;
+      const next = paintDisk(
+        useAnnotationStore.getState().pixelLabels,
+        ip.x,
+        ip.y,
+        6,
+        useAnnotationStore.getState().activeLabel,
+        false,
+      );
+      paintPixels(next);
       return;
     }
 
@@ -465,6 +497,18 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
       return;
     }
 
+    if (paintingRef.current) {
+      const ip = screenToImage(sp.x, sp.y);
+      const st = useAnnotationStore.getState();
+      if (st.activeTool2d === 'brush') {
+        paintPixels(paintDisk(st.pixelLabels, ip.x, ip.y, 6, st.activeLabel, false));
+      } else if (st.activeTool2d === 'eraser') {
+        paintPixels(paintDisk(st.pixelLabels, ip.x, ip.y, 6, '', true));
+      }
+      scheduleRender();
+      return;
+    }
+
     scheduleRender();
   }
 
@@ -490,6 +534,7 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
     isPanningRef.current = false;
     dragRef.current = null;
     moveRef.current = null;
+    paintingRef.current = false;
 
     if (tool === 'bbox' && isDrawingRef.current) {
       const start = currentPointsRef.current[0];
@@ -574,6 +619,7 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
     polygon: 'crosshair',
     polyline: 'crosshair',
     keypoint: 'crosshair',
+    brush: 'cell',
     pan: 'grab',
     eraser: 'cell',
   };

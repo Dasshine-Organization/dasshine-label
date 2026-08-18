@@ -148,21 +148,36 @@ def import_from_storage_prefix(
         org = project.organization
 
         limit = int(options.get("limit") or 500)
-        items = FileStorageService().list_prefix(prefix, max_keys=limit, delimiter=False)
+        mount_id = options.get("mount_id")
         exts_raw = options.get("extensions") or list(IMAGE_EXTS)
         exts = {
             e.lower() if str(e).startswith(".") else f".{str(e).lower()}"
             for e in exts_raw
         }
         urls = []
-        for it in items:
-            if it.get("is_dir"):
-                continue
-            key = (it.get("key") or "").lower()
-            if not any(key.endswith(ext) for ext in exts):
-                continue
-            if it.get("url"):
-                urls.append(it["url"])
+        if mount_id:
+            from app.services.storage_mounts import get_mount, ingest_os_mount_files
+
+            mount = get_mount(db, int(mount_id))
+            if not mount or not mount.enabled:
+                raise ValueError("挂载不存在或已禁用")
+            urls = ingest_os_mount_files(
+                mount,
+                options.get("path") or "",
+                project_id=project_id,
+                extensions=exts,
+                limit=limit,
+            )
+        else:
+            items = FileStorageService().list_prefix(prefix, max_keys=limit, delimiter=False)
+            for it in items:
+                if it.get("is_dir"):
+                    continue
+                key = (it.get("key") or "").lower()
+                if not any(key.endswith(ext) for ext in exts):
+                    continue
+                if it.get("url"):
+                    urls.append(it["url"])
         if not urls:
             raise ValueError("前缀下没有匹配的文件")
 

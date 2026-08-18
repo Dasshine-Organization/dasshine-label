@@ -144,9 +144,11 @@ def stripe_topup_idempotent(
     session_id: str,
     created_by_id: Optional[int] = None,
     note: Optional[str] = None,
+    ref_type: str = "stripe_session",
+    reason: str = "stripe",
 ) -> Tuple[OrgBillingLedger, bool]:
-    """Stripe 入账；同一 checkout session 只入账一次。Returns (row, created_new)."""
-    existing = find_ledger_by_ref(db, ref_type="stripe_session", ref_id=session_id)
+    """Stripe 入账；同一 ref 只入账一次。Returns (row, created_new)."""
+    existing = find_ledger_by_ref(db, ref_type=ref_type, ref_id=session_id)
     if existing is not None:
         return existing, False
     row = topup(
@@ -154,9 +156,9 @@ def stripe_topup_idempotent(
         org,
         amount,
         created_by_id=created_by_id,
-        note=note or f"stripe {session_id}",
-        reason="stripe",
-        ref_type="stripe_session",
+        note=note or f"{reason} {session_id}",
+        reason=reason,
+        ref_type=ref_type,
         ref_id=session_id,
     )
     return row, True

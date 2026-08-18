@@ -1,6 +1,6 @@
 # P12 · Stripe 充值 · 多模态共编 · 存储挂载硬化
 
-P11 交付了账本、2D presence、存储浏览。本迭代落地此前延后的三块可交付切片；**Stripe 订阅续费门户、Automerge、内核 NFS/FUSE、3D/具身逐像素 CRDT 延后 P13**。
+P11 交付了账本、2D presence、存储浏览。本迭代落地此前延后的三块可交付切片；**Stripe 订阅续费门户、Automerge、内核 NFS/FUSE、3D/具身逐像素 CRDT 延后**（订阅/门户与点云粗粒度共编已在 P13；Automerge / FUSE / 逐点 CRDT 见 P14）。
 
 ## 范围
 
@@ -10,7 +10,7 @@ P11 交付了账本、2D presence、存储浏览。本迭代落地此前延后�
 | **P12-2** | 2D 草稿 Yjs 双向同步；文本/视频/OCR 等模态工作台 presence + payload 共编；Redis 扇出（多 worker） | ✅ |
 | **P12-3** | 浏览根白名单 / 禁 symlink；S3 `Delimiter` 真目录；大前缀异步 `from-storage/jobs` | ✅ |
 
-**明确不做（P13）：** Stripe Subscriptions / Customer Portal、Automerge 替换、OS 级 NFS/FUSE、点云/具身逐像素 CRDT。
+**明确不做（当时）：** 见 P13 / P14；现均已交付。
 
 ## Stripe
 

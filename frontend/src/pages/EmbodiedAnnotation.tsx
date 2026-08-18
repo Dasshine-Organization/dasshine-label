@@ -23,7 +23,9 @@ import {
 } from '../services/embodied'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import EmbodiedPose3DViewer from '../components/embodied/EmbodiedPose3DViewer'
+import CollabPresenceBar from '../components/CollabPresenceBar'
 import useAuthStore from '../store/authStore'
+import { useYjsCollab } from '../hooks/useYjsCollab'
 import { notifyDraftSaved } from '../utils/draftSaveNotify'
 import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
 
@@ -240,6 +242,60 @@ export default function EmbodiedAnnotation() {
       cancelled = true
     }
   }, [taskId, token, mockEpisode, demoOnly])
+
+  const collabEnabled = useBackend && !demoOnly
+  const { peers, connected, pushDraft } = useYjsCollab(
+    taskId,
+    collabEnabled,
+    useCallback((draft: Record<string, unknown>) => {
+      if (Array.isArray(draft.action_labels)) {
+        setLabels(draft.action_labels as ActionLabelDef[])
+      }
+      if (draft.frame_actions && typeof draft.frame_actions === 'object') {
+        setFrameActions(draft.frame_actions as Record<number, FrameAnnotation>)
+      }
+      if (Array.isArray(draft.committed_frames)) {
+        setCommittedFrames(new Set(draft.committed_frames as number[]))
+      }
+      if (typeof draft.instruction === 'string') setInstruction(draft.instruction)
+      if (draft.success === 'success' || draft.success === 'fail' || draft.success === 'unknown') {
+        setSuccess(draft.success)
+      }
+      if (Array.isArray(draft.segments)) setSegments(draft.segments as ActionSegment[])
+      if (Array.isArray(draft.grasps)) setGrasps(draft.grasps as GraspPose[])
+      if (Array.isArray(draft.trajectory)) setTrajectory(draft.trajectory as TrajectoryPoint[])
+      if (Array.isArray(draft.preferences)) setPreferences(draft.preferences as PreferencePair[])
+    }, []),
+  )
+
+  useEffect(() => {
+    if (!collabEnabled || !connected || !hydrated) return
+    pushDraft({
+      action_labels: labels,
+      frame_actions: frameActions,
+      committed_frames: [...committedFrames].sort((a, b) => a - b),
+      instruction,
+      success,
+      segments,
+      grasps,
+      trajectory,
+      preferences,
+    })
+  }, [
+    collabEnabled,
+    connected,
+    hydrated,
+    labels,
+    frameActions,
+    committedFrames,
+    instruction,
+    success,
+    segments,
+    grasps,
+    trajectory,
+    preferences,
+    pushDraft,
+  ])
 
   const persistWorkspace = useCallback(async (showToast = false) => {
     setSavingDraft(true)
@@ -677,6 +733,7 @@ export default function EmbodiedAnnotation() {
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8 pb-14 text-white/90 w-full max-w-[1920px] mx-auto">
+      <CollabPresenceBar peers={peers} connected={connected} />
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1e1e2e] pb-4">
         <div className="flex items-center gap-3 min-w-0">
           <button

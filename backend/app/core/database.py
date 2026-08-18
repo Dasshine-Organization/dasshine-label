@@ -53,6 +53,7 @@ def init_db() -> None:
         task_lock,
         org_billing,
         task_collab,
+        storage_mount,
     )
 
     Base.metadata.create_all(bind=engine)

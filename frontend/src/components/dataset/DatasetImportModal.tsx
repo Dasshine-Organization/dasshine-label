@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { message } from 'antd'
 import api from '../../services/api'
+import useAuthStore from '../../store/authStore'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -398,6 +399,10 @@ export default function DatasetImportModal({ projectId, projectName, category, o
   const [storagePrefix, setStoragePrefix] = useState('projects/')
   const [browseItems, setBrowseItems] = useState<Array<{ key: string; size?: number; url?: string; is_dir?: boolean }>>([])
   const [browseBusy, setBrowseBusy] = useState(false)
+  const [mounts, setMounts] = useState<Array<{ id: number; name: string; root_prefix: string }>>([])
+  const [selectedMountId, setSelectedMountId] = useState<number | null>(null)
+  const [mountPath, setMountPath] = useState('')
+  const activeOrgId = useAuthStore(s => s.user?.active_org_id ?? null)
 
   // Filter methods by category
   const availableMethods = METHODS.filter(m =>
@@ -424,6 +429,26 @@ export default function DatasetImportModal({ projectId, projectName, category, o
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (method !== 'storage' || !activeOrgId) {
+      setMounts([])
+      return
+    }
+    let cancelled = false
+    api
+      .get(`/orgs/${activeOrgId}/storage-mounts`)
+      .then(res => {
+        if (cancelled) return
+        setMounts((res.data?.items as Array<{ id: number; name: string; root_prefix: string }>) || [])
+      })
+      .catch(() => {
+        if (!cancelled) setMounts([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [method, activeOrgId])
 
   async function handleImport() {
     setLoading(true)
@@ -561,15 +586,26 @@ export default function DatasetImportModal({ projectId, projectName, category, o
         })
         res = data
       } else if (method === 'storage') {
-        const prefix = storagePrefix.trim()
-        if (!prefix) throw new Error('请填写存储前缀')
-        const { data } = await api.post(`/projects/${projectId}/import/from-storage`, {
-          prefix,
-          limit: 500,
-          priority,
-          golden_ratio: goldenRatio / 100,
-        })
-        res = data
+        if (selectedMountId) {
+          const { data } = await api.post(`/projects/${projectId}/import/from-storage`, {
+            mount_id: selectedMountId,
+            path: mountPath.trim(),
+            limit: 500,
+            priority,
+            golden_ratio: goldenRatio / 100,
+          })
+          res = data
+        } else {
+          const prefix = storagePrefix.trim()
+          if (!prefix) throw new Error('请填写存储前缀或选择挂载')
+          const { data } = await api.post(`/projects/${projectId}/import/from-storage`, {
+            prefix,
+            limit: 500,
+            priority,
+            golden_ratio: goldenRatio / 100,
+          })
+          res = data
+        }
       }
 
       setResult(res)
@@ -843,37 +879,97 @@ export default function DatasetImportModal({ projectId, projectName, category, o
 
             {method === 'storage' && (
               <div className="space-y-2">
-                <label className="text-xs text-white/40">存储前缀</label>
-                <div className="flex gap-2">
-                  <input
-                    value={storagePrefix}
-                    onChange={e => setStoragePrefix(e.target.value)}
-                    placeholder="projects/1/ 或 datasets/raw/"
-                    className="flex-1 bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white
-                      placeholder-white/15 focus:outline-none focus:border-[#00d4ff]/40"
-                  />
-                  <button
-                    type="button"
-                    disabled={browseBusy}
-                    onClick={async () => {
-                      setBrowseBusy(true)
-                      try {
-                        const { data } = await api.get('/storage/browse', {
-                          params: { prefix: storagePrefix.trim(), limit: 100 },
-                        })
-                        setBrowseItems(data.items || [])
-                        message.success(`列出 ${data.count ?? 0} 项`)
-                      } catch (e: any) {
-                        message.error(e?.response?.data?.detail ?? '浏览失败')
-                      } finally {
-                        setBrowseBusy(false)
-                      }
-                    }}
-                    className="px-3 py-2 text-xs rounded-lg border border-[#1e1e2e] text-white/60 hover:bg-white/5"
-                  >
-                    {browseBusy ? '…' : '预览'}
-                  </button>
-                </div>
+                {mounts.length > 0 && (
+                  <div>
+                    <label className="text-xs text-white/40">组织挂载（可选）</label>
+                    <select
+                      value={selectedMountId ?? ''}
+                      onChange={e => {
+                        const v = e.target.value
+                        setSelectedMountId(v ? Number(v) : null)
+                        setBrowseItems([])
+                      }}
+                      className="mt-1 w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white
+                        focus:outline-none focus:border-[#00d4ff]/40"
+                    >
+                      <option value="">使用全局前缀</option>
+                      {mounts.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} · {m.root_prefix}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {selectedMountId ? (
+                  <>
+                    <label className="text-xs text-white/40">相对路径</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={mountPath}
+                        onChange={e => setMountPath(e.target.value)}
+                        placeholder="留空为挂载根；如 raw/batch1"
+                        className="flex-1 bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white
+                          placeholder-white/15 focus:outline-none focus:border-[#00d4ff]/40"
+                      />
+                      <button
+                        type="button"
+                        disabled={browseBusy}
+                        onClick={async () => {
+                          setBrowseBusy(true)
+                          try {
+                            const { data } = await api.get(`/storage/mounts/${selectedMountId}/browse`, {
+                              params: { path: mountPath.trim(), limit: 100 },
+                            })
+                            setBrowseItems(data.items || [])
+                            message.success(`列出 ${data.count ?? 0} 项`)
+                          } catch (e: any) {
+                            message.error(e?.response?.data?.detail ?? '浏览失败')
+                          } finally {
+                            setBrowseBusy(false)
+                          }
+                        }}
+                        className="px-3 py-2 text-xs rounded-lg border border-[#1e1e2e] text-white/60 hover:bg-white/5"
+                      >
+                        {browseBusy ? '…' : '预览'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-xs text-white/40">存储前缀</label>
+                    <div className="flex gap-2">
+                      <input
+                        value={storagePrefix}
+                        onChange={e => setStoragePrefix(e.target.value)}
+                        placeholder="projects/1/ 或 datasets/raw/"
+                        className="flex-1 bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-xs text-white
+                          placeholder-white/15 focus:outline-none focus:border-[#00d4ff]/40"
+                      />
+                      <button
+                        type="button"
+                        disabled={browseBusy}
+                        onClick={async () => {
+                          setBrowseBusy(true)
+                          try {
+                            const { data } = await api.get('/storage/browse', {
+                              params: { prefix: storagePrefix.trim(), limit: 100 },
+                            })
+                            setBrowseItems(data.items || [])
+                            message.success(`列出 ${data.count ?? 0} 项`)
+                          } catch (e: any) {
+                            message.error(e?.response?.data?.detail ?? '浏览失败')
+                          } finally {
+                            setBrowseBusy(false)
+                          }
+                        }}
+                        className="px-3 py-2 text-xs rounded-lg border border-[#1e1e2e] text-white/60 hover:bg-white/5"
+                      >
+                        {browseBusy ? '…' : '预览'}
+                      </button>
+                    </div>
+                  </>
+                )}
                 <p className="text-[10px] text-white/25">
                   后端：{storageInfo?.backend || 'local'}
                   {storageInfo?.hint ? ` · ${storageInfo.hint}` : ''}

@@ -581,11 +581,34 @@ async def import_embodied(
 # ── From storage prefix (P11 mount) ───────────────────────────────────────────
 
 class FromStorageImportRequest(BaseModel):
-    prefix: str = Field(..., min_length=1, max_length=512)
+    prefix: str = Field("", max_length=512)
+    mount_id: Optional[int] = None
+    path: str = Field("", max_length=512)
     extensions: Optional[List[str]] = None
     limit: int = Field(500, ge=1, le=5000)
     priority: int = Field(5, ge=1, le=10)
     golden_ratio: float = Field(0.05, ge=0, le=0.3)
+
+
+def _resolve_from_storage_prefix(db: Session, payload: FromStorageImportRequest, current_user: User) -> str:
+    if payload.mount_id:
+        from app.services.organization_service import OrganizationService
+        from app.services.storage_mounts import get_mount, resolve_mount_prefix
+
+        m = get_mount(db, payload.mount_id)
+        if not m or not m.enabled:
+            raise HTTPException(404, "挂载不存在或已禁用")
+        svc = OrganizationService(db)
+        if not current_user.is_admin and not svc.user_in_org(current_user.id, m.organization_id):
+            raise HTTPException(403, "无权使用该挂载")
+        try:
+            return resolve_mount_prefix(m, payload.path or "")
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+    prefix = (payload.prefix or "").strip()
+    if not prefix:
+        raise HTTPException(400, "请提供 prefix 或 mount_id")
+    return prefix
 
 
 @router.post("/{project_id}/import/from-storage")
@@ -595,32 +618,43 @@ def import_from_storage(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """从当前存储后端前缀浏览结果批量建任务（local / S3）。"""
+    """从当前存储后端前缀浏览结果批量建任务（local / S3 / NFS / FUSE）。"""
     from app.services.file_storage import IMAGE_EXTS, FileStorageService
+    from app.services.storage_mounts import get_mount, ingest_os_mount_files
 
     project = _check_project_access(project_id, current_user, db)
-    try:
-        # 导入时递归列文件（delimiter=False）
-        items = FileStorageService().list_prefix(
-            payload.prefix, max_keys=payload.limit, delimiter=False
-        )
-    except Exception as e:
-        raise HTTPException(400, f"浏览存储失败: {e}") from e
 
+    prefix = _resolve_from_storage_prefix(db, payload, current_user)
     exts = {
         e.lower() if e.startswith(".") else f".{e.lower()}"
         for e in (payload.extensions or list(IMAGE_EXTS))
     }
     urls: List[str] = []
-    for it in items:
-        if it.get("is_dir"):
-            continue
-        key = (it.get("key") or "").lower()
-        if not any(key.endswith(ext) for ext in exts):
-            continue
-        url = it.get("url")
-        if url:
-            urls.append(url)
+    try:
+        mount = get_mount(db, payload.mount_id) if payload.mount_id else None
+        if mount and mount.kind in ("nfs", "fuse"):
+            urls = ingest_os_mount_files(
+                mount,
+                payload.path or "",
+                project_id=project_id,
+                extensions=exts,
+                limit=payload.limit,
+            )
+        else:
+            items = FileStorageService().list_prefix(
+                prefix, max_keys=payload.limit, delimiter=False
+            )
+            for it in items:
+                if it.get("is_dir"):
+                    continue
+                key = (it.get("key") or "").lower()
+                if not any(key.endswith(ext) for ext in exts):
+                    continue
+                url = it.get("url")
+                if url:
+                    urls.append(url)
+    except Exception as e:
+        raise HTTPException(400, f"浏览存储失败: {e}") from e
 
     if not urls:
         raise HTTPException(400, "前缀下没有匹配的文件")
@@ -636,7 +670,7 @@ def import_from_storage(
         golden_ratio=payload.golden_ratio,
     )
     out = result.to_dict()
-    out["source_prefix"] = payload.prefix
+    out["source_prefix"] = prefix
     out["matched"] = len(urls)
     _charge_import_success(
         db,
@@ -657,6 +691,7 @@ def import_from_storage_job(
 ):
     """大前缀异步导入（Celery）。"""
     project = _check_project_access(project_id, current_user, db)
+    prefix = _resolve_from_storage_prefix(db, payload, current_user)
     _enforce_task_quota(db, project, add_count=1)
     _enforce_import_credits(db, project, add_count=1)
     try:
@@ -664,13 +699,15 @@ def import_from_storage_job(
 
         async_result = import_from_storage_prefix.delay(
             project_id,
-            payload.prefix,
+            prefix,
             current_user.id,
             {
                 "extensions": payload.extensions,
                 "limit": payload.limit,
                 "priority": payload.priority,
                 "golden_ratio": payload.golden_ratio,
+                "mount_id": payload.mount_id,
+                "path": payload.path,
             },
         )
     except Exception as e:
@@ -683,7 +720,7 @@ def import_from_storage_job(
         "status": "queued",
         "project_id": project_id,
         "kind": "from-storage",
-        "prefix": payload.prefix,
+        "prefix": prefix,
     }
 
 

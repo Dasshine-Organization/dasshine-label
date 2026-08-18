@@ -111,7 +111,7 @@ export default function Scene3DWorkspace({
   const drawStartRef = useRef<{ x: number; z: number } | null>(null)
 
   const store = useAnnotationStore()
-  const { boxes3d: storeBoxes, activeTool3d: storeTool, selectedIds3d } = store
+  const { boxes3d: storeBoxes, activeTool3d: storeTool, selectedIds3d, pointLabels, labelClasses } = store
   const boxes3d = boxesOverride ?? storeBoxes
   const activeTool3d = readOnly ? 'orbit' : storeTool
 
@@ -340,11 +340,19 @@ export default function Scene3DWorkspace({
   // ── recolor points by annotations ──
   useEffect(() => {
     if (!pointsRef.current || !cloud || !baseColorsRef.current) return
-    const colored = applyAnnotationColors(cloud.positions, baseColorsRef.current, boxes3d)
+    const colorMap: Record<string, string> = {}
+    for (const lc of labelClasses) colorMap[lc.name] = lc.color
+    const colored = applyAnnotationColors(
+      cloud.positions,
+      baseColorsRef.current,
+      boxes3d,
+      pointLabels,
+      colorMap,
+    )
     const attr = pointsRef.current.geometry.getAttribute('color') as THREE.BufferAttribute
     attr.array = colored
     attr.needsUpdate = true
-  }, [boxes3d, cloud])
+  }, [boxes3d, cloud, pointLabels, labelClasses])
 
   // ── sync 3D boxes ──
   useEffect(() => {
@@ -579,6 +587,28 @@ export default function Scene3DWorkspace({
         setDrawStart(pt)
         syncDrawPreview(pt, pt)
       }
+    } else if (tool === 'point' && e.button === 0) {
+      const cam = mainCameraRef.current
+      const el = mainRef.current
+      const positions = cloud?.positions
+      if (cam && el && positions) {
+        const ray = makeRay(cam, e.clientX, e.clientY, el.getBoundingClientRect())
+        let best = -1
+        let bestD = 0.35
+        const p = new THREE.Vector3()
+        for (let i = 0; i < positions.length / 3; i++) {
+          p.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2])
+          const d = ray.distanceToPoint(p)
+          if (d < bestD) {
+            bestD = d
+            best = i
+          }
+        }
+        if (best >= 0) {
+          const st = useAnnotationStore.getState()
+          st.setPointLabel(best, e.altKey ? null : st.activeLabel)
+        }
+      }
     }
   }
 
@@ -666,6 +696,7 @@ export default function Scene3DWorkspace({
   const cursorMap: Record<string, string> = {
     select: editDragRef.current ? 'grabbing' : 'default',
     box3d: 'crosshair',
+    point: 'cell',
     orbit: interactionRef.current.isDragging ? 'grabbing' : 'grab',
     pan: interactionRef.current.isPanning ? 'grabbing' : 'all-scroll',
   }

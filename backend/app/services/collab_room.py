@@ -180,7 +180,13 @@ def load_collab_state(db, task_id: int) -> bytes:
     from app.models.task_collab import TaskCollabDoc
 
     row = db.query(TaskCollabDoc).filter(TaskCollabDoc.task_id == task_id).first()
-    return bytes(row.state) if row and row.state else b""
+    if not row or not row.state:
+        return b""
+    engine = getattr(row, "engine", None) or "automerge"
+    if engine not in ("automerge", ""):
+        # 旧 Yjs 快照不再加载
+        return b""
+    return bytes(row.state)
 
 
 def save_collab_state(db, task_id: int, state: bytes, user_id: Optional[int]) -> None:
@@ -188,10 +194,16 @@ def save_collab_state(db, task_id: int, state: bytes, user_id: Optional[int]) ->
 
     row = db.query(TaskCollabDoc).filter(TaskCollabDoc.task_id == task_id).first()
     if row is None:
-        row = TaskCollabDoc(task_id=task_id, state=state or b"", updated_by_id=user_id)
+        row = TaskCollabDoc(
+            task_id=task_id,
+            state=state or b"",
+            engine="automerge",
+            updated_by_id=user_id,
+        )
         db.add(row)
     else:
         row.state = state or b""
+        row.engine = "automerge"
         row.updated_by_id = user_id
     db.commit()
 

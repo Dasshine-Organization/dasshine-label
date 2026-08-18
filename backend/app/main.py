@@ -29,6 +29,7 @@ from app.api.v1 import (
     quality,
     roles,
     storage,
+    storage_mounts,
     task_prelabel,
     tasks,
     users,
@@ -85,6 +86,7 @@ def create_application() -> FastAPI:
     app.include_router(billing.router, prefix="/api/v1")
     app.include_router(dataset.router, prefix="/api/v1")
     app.include_router(storage.router, prefix="/api/v1")
+    app.include_router(storage_mounts.router, prefix="/api/v1")
     app.include_router(collab.router, prefix="/api/v1")
     app.include_router(tasks.router, prefix="/api/v1", tags=["任务"])
     app.include_router(annotations.router, prefix="/api/v1", tags=["标注"])

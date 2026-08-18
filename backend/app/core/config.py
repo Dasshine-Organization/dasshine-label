@@ -51,9 +51,22 @@ class Settings(BaseSettings):
         '[{"id":"pack_1k","credits":1000,"amount_cents":999,"currency":"usd","label":"1000 积分"},'
         '{"id":"pack_5k","credits":5000,"amount_cents":3999,"currency":"usd","label":"5000 积分"}]'
     )
+    # P13 订阅计划：[{"id","price_id","credits_per_month","label"}]
+    STRIPE_PRICE_PLANS: str = "[]"
+    STRIPE_PORTAL_RETURN_URL: str = "http://localhost:3000/projects?billing=portal"
+    # P14 Stripe Tax / Connect
+    STRIPE_TAX_ENABLED: bool = False
+    STRIPE_CONNECT_ENABLED: bool = False
+    STRIPE_CONNECT_COUNTRY: str = "US"
+    STRIPE_CONNECT_RETURN_URL: str = "http://localhost:3000/projects?billing=connect"
+    STRIPE_APPLICATION_FEE_BPS: int = 0
 
     # P12 存储浏览白名单（相对 UPLOAD_DIR 或 S3 prefix；空则默认 projects/）
     STORAGE_BROWSE_ALLOW_PREFIXES: str = "projects/"
+    # P14 内核 NFS/FUSE（默认不执行 mount；仅登记/探测）
+    STORAGE_OS_MOUNT_ENABLED: bool = False
+    STORAGE_OS_MOUNT_ALLOW_ROOTS: str = "/mnt/dasshine,/Volumes/dasshine"
+    STORAGE_REQUIRE_OS_MOUNT: bool = False
     
     # 数据库
     # DATABASE_URL: PostgresDsn = "postgresql://postgres:postgres@localhost:5432/dasshine_label"

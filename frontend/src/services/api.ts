@@ -102,10 +102,28 @@ export const orgApi = {
 export const billingApi = {
   listPacks: () =>
     api.get<{ configured: boolean; items: Array<Record<string, unknown>> }>('/billing/packs'),
+  listPlans: () =>
+    api.get<{ configured: boolean; items: Array<Record<string, unknown>> }>('/billing/plans'),
   checkout: (orgId: number, packId: string) =>
     api.post<{ session_id: string; url: string }>(`/orgs/${orgId}/billing/checkout`, {
       pack_id: packId,
     }),
+  subscribe: (orgId: number, planId: string) =>
+    api.post<{ session_id: string; url: string }>(`/orgs/${orgId}/billing/subscribe`, {
+      plan_id: planId,
+    }),
+  portal: (orgId: number) =>
+    api.post<{ url: string }>(`/orgs/${orgId}/billing/portal`),
+  getSubscription: (orgId: number) =>
+    api.get<Record<string, unknown>>(`/orgs/${orgId}/billing/subscription`),
+  features: () =>
+    api.get<{ configured: boolean; tax_enabled: boolean; connect_enabled: boolean }>(
+      '/billing/features',
+    ),
+  connectOnboard: (orgId: number) =>
+    api.post<{ url: string; account_id: string }>(`/orgs/${orgId}/billing/connect/onboard`),
+  connectLogin: (orgId: number) =>
+    api.post<{ url: string; account_id: string }>(`/orgs/${orgId}/billing/connect/login`),
 }
 
 // 项目相关 API
