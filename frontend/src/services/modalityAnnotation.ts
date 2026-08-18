@@ -7,6 +7,9 @@ export type AudioSegment = {
   end_ms: number
   speaker: string
   text: string
+  emotion?: string
+  mos?: number
+  issues?: string
 }
 export type VideoClip = {
   id: string
@@ -16,11 +19,35 @@ export type VideoClip = {
   note?: string
 }
 
+export type VideoTrackKeyframe = {
+  t: number
+  bbox: [number, number, number, number]
+}
+
+export type VideoTrack = {
+  id: string
+  track_id: number
+  label: string
+  color: string
+  keyframes: VideoTrackKeyframe[]
+}
+
+export type PreferencePair = {
+  id: string
+  prompt: string
+  response_a: string
+  response_b: string
+  winner: 'a' | 'b' | 'tie'
+}
+
 export type OcrSpan = {
   id: string
   text: string
   label?: string
   bbox: number[] // xywh
+  rows?: number
+  cols?: number
+  cells?: Array<{ r: number; c: number; text: string; bbox: number[] }>
 }
 
 export type ModalityPayload = {
@@ -37,9 +64,13 @@ export type ModalityPayload = {
   transcript?: string
   speakers?: string[]
   clips?: VideoClip[]
+  tracks?: VideoTrack[]
   caption?: string
   frame_notes?: Record<string, string>
   vqa?: { question: string; answer: string }
+  preferences?: PreferencePair[]
+  emotion?: string | null
+  mos?: number | null
 }
 
 export type ModalityWorkspace = {
@@ -138,6 +169,7 @@ export function offlineMultimodalWorkspace(taskId: string): ModalityWorkspace {
       ann_type: 'image_caption',
       caption: '',
       vqa: { question: '', answer: '' },
+      preferences: [],
     },
     label_classes: [],
   }
@@ -158,6 +190,7 @@ export function offlineVideoWorkspace(taskId: string): ModalityWorkspace {
       ann_type: 'video_action',
       clips: [],
       caption: '',
+      tracks: [],
     },
     label_classes: [],
   }

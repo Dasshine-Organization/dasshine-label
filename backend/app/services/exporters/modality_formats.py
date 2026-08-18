@@ -15,6 +15,7 @@ from app.services.exporters.common import (
     task_file_name,
 )
 from app.services.exporters.types import ExportArtifact
+from app.services.video_tracks import sampled_track_boxes
 
 
 def _generic_csv(tasks: List[Any], suffix: str) -> ExportArtifact:
@@ -147,6 +148,8 @@ def export_audio_jsonl(
                 "text": ann.get("transcript") or content.get("text") or "",
                 "segments": ann.get("segments") or [],
                 "speakers": ann.get("speakers") or [],
+                "emotion": ann.get("emotion"),
+                "mos": ann.get("mos"),
             }
         )
     return ExportArtifact(
@@ -204,6 +207,7 @@ def export_video_jsonl(
         ann = modality_annotation(payload)
         content = modality_content(task, payload)
         clips = ann.get("clips") or []
+        tracks = [t for t in (ann.get("tracks") or []) if isinstance(t, dict)]
         rows.append(
             {
                 "video_id": str(task.id),
@@ -218,6 +222,16 @@ def export_video_jsonl(
                     }
                     for c in clips
                     if isinstance(c, dict)
+                ],
+                "tracks": [
+                    {
+                        "track_id": t.get("track_id"),
+                        "label": t.get("label"),
+                        "color": t.get("color"),
+                        "keyframes": t.get("keyframes") or [],
+                        "sampled": sampled_track_boxes(t, fps=5.0),
+                    }
+                    for t in tracks
                 ],
             }
         )
@@ -307,6 +321,9 @@ def export_ocr_jsonl(
                         "text": it.get("text") or it.get("label") or "",
                         "bbox": it.get("bbox") or it.get("points"),
                         "label": it.get("label"),
+                        "rows": it.get("rows"),
+                        "cols": it.get("cols"),
+                        "cells": it.get("cells") or [],
                     }
                     for it in items
                 ],
@@ -414,6 +431,7 @@ def export_mm_jsonl(
                 "caption": ann.get("caption") or "",
                 "question": vqa.get("question") or "",
                 "answer": vqa.get("answer") or "",
+                "preferences": ann.get("preferences") or [],
             }
         )
     return ExportArtifact(
@@ -440,6 +458,20 @@ def export_mm_sharegpt(
         if vqa.get("question"):
             conversations.append({"from": "human", "value": f"<image>\n{vqa.get('question')}"})
             conversations.append({"from": "gpt", "value": str(vqa.get("answer") or "")})
+        for pref in ann.get("preferences") or []:
+            if not isinstance(pref, dict):
+                continue
+            winner = pref.get("winner") or "a"
+            chosen = pref.get("response_a") if winner == "a" else pref.get("response_b")
+            if winner == "tie":
+                chosen = pref.get("response_a") or pref.get("response_b") or ""
+            conversations.append(
+                {
+                    "from": "human",
+                    "value": f"<image>\n{pref.get('prompt') or 'Which response is better?'}",
+                }
+            )
+            conversations.append({"from": "gpt", "value": str(chosen or "")})
         if not conversations:
             conversations.append({"from": "human", "value": "<image>"})
             conversations.append({"from": "gpt", "value": ""})

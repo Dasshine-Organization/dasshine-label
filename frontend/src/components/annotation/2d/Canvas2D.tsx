@@ -1,7 +1,8 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { v4 as uuid } from 'uuid';
 import useAnnotationStore, { Annotation2D, Point2D } from '../../../store/annotationStore';
-import { paintDisk, parsePixelKey } from '../../../utils/pixelCrdt';
+import { paintDisk, parsePixelKey } from '../../../utils/pixelCrdt'
+import { COCO17_EDGES } from '../../../utils/cocoSkeleton'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,36 @@ export default function Canvas2D({ imageUrl }: Canvas2DProps) {
       if (!ann.visible) return;
       const isSelected = sel.includes(ann.id);
       drawAnnotation(ctx, ann, isSelected, sl, sc, op);
+    });
+
+    const bySkeleton = new Map<string, typeof anns>();
+    for (const ann of anns) {
+      const sid = ann.attributes?.skeletonId;
+      if (!ann.visible || typeof sid !== 'string' || ann.type !== 'keypoint') continue;
+      const list = bySkeleton.get(sid) ?? [];
+      list.push(ann);
+      bySkeleton.set(sid, list);
+    }
+    bySkeleton.forEach((group) => {
+      const indexed = new Map<number, { x: number; y: number }>();
+      for (const ann of group) {
+        const idx = Number(ann.attributes?.jointIndex);
+        if (!Number.isFinite(idx) || !ann.points[0]) continue;
+        indexed.set(idx, imageToScreen(ann.points[0].x, ann.points[0].y));
+      }
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0, 212, 255, 0.7)';
+      ctx.lineWidth = 1.5;
+      for (const [a, b] of COCO17_EDGES) {
+        const pa = indexed.get(a);
+        const pb = indexed.get(b);
+        if (!pa || !pb) continue;
+        ctx.beginPath();
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+      }
+      ctx.restore();
     });
 
     // draw in-progress shape

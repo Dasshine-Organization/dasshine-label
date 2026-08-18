@@ -66,11 +66,18 @@ type ReviewDetail = {
     vqa?: { question?: string; answer?: string }
     span_count?: number
     frame_notes?: Record<string, string>
+    track_count?: number
+    tracks?: Array<{ track_id?: number; label?: string; keyframes?: unknown[] }>
+    preferences?: Array<{ prompt?: string; winner?: string }>
+    emotion?: string | null
+    mos?: number | null
   } | null
+  classification_labels?: string[]
   pointcloud_preview?: {
     point_cloud_url?: string
     boxes3d?: Array<Record<string, unknown>>
     box_count?: number
+    point_label_count?: number
   } | null
   annotation_id?: string
   canonical_annotation_id?: string | null
@@ -515,6 +522,25 @@ export default function ReviewQueue() {
                         A: {view.modality_preview.vqa.answer}
                       </div>
                     )}
+                    {(view.modality_preview.track_count ?? 0) > 0 && (
+                      <div className="text-white/50">
+                        轨迹 {view.modality_preview.track_count} 条
+                        {(view.modality_preview.tracks || []).slice(0, 8).map((t, i) => (
+                          <div key={i} className="font-mono text-[10px]">
+                            #{t.track_id} {t.label} · {(t.keyframes || []).length} kf
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(view.modality_preview.preferences || []).length > 0 && (
+                      <div className="text-white/50">
+                        偏好 {(view.modality_preview.preferences || []).length} 对
+                      </div>
+                    )}
+                    {view.modality_preview.emotion && (
+                      <div>情绪：{view.modality_preview.emotion}</div>
+                    )}
+                    {view.modality_preview.mos != null && <div>MOS：{view.modality_preview.mos}</div>}
                   </div>
                 ) : view.data_url ? (
                   <div className="relative max-w-full max-h-[52vh]">
@@ -545,6 +571,11 @@ export default function ReviewQueue() {
                     {view.modality_preview?.modality === 'ocr' && (
                       <div className="absolute bottom-2 left-2 right-2 text-[10px] text-white/70 bg-black/55 rounded px-2 py-1 max-h-16 overflow-y-auto">
                         OCR {(view.modality_preview.span_count ?? view.modality_preview.spans?.length) || 0} 条
+                      </div>
+                    )}
+                    {(view.classification_labels || []).length > 0 && (
+                      <div className="absolute top-2 left-2 text-[10px] text-white/80 bg-black/55 rounded px-2 py-1">
+                        分类 {(view.classification_labels || []).join(', ')}
                       </div>
                     )}
                   </div>

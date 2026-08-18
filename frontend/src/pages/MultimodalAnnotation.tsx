@@ -83,6 +83,103 @@ export default function MultimodalAnnotation() {
                 />
               </div>
             </>
+          ) : annType === 'rlhf' ? (
+            <div className="space-y-3">
+              <div className="text-xs text-white/40">成对回复偏好</div>
+              <button
+                type="button"
+                className="text-xs px-3 py-1.5 rounded-lg border border-[#8b5cf6]/40 text-[#c4b5fd]"
+                onClick={() =>
+                  updatePayload({
+                    preferences: [
+                      ...(payload.preferences ?? []),
+                      {
+                        id: `pref_${Date.now().toString(36)}`,
+                        prompt: '哪一段回复更好？',
+                        response_a: '',
+                        response_b: '',
+                        winner: 'a',
+                      },
+                    ],
+                  })
+                }
+              >
+                添加偏好对
+              </button>
+              {(payload.preferences ?? []).map(p => (
+                <div key={p.id} className="space-y-2 p-3 rounded-xl border border-[#1e1e2e] bg-[#0a0a0f]">
+                  <input
+                    className="w-full text-xs bg-transparent border-b border-[#1e1e2e] pb-2"
+                    value={p.prompt}
+                    onChange={e =>
+                      updatePayload({
+                        preferences: (payload.preferences ?? []).map(x =>
+                          x.id === p.id ? { ...x, prompt: e.target.value } : x,
+                        ),
+                      })
+                    }
+                    placeholder="比较提示"
+                  />
+                  <textarea
+                    rows={3}
+                    className="w-full text-xs bg-[#12121a] border border-[#1e1e2e] rounded-lg px-2 py-1.5 resize-none"
+                    value={p.response_a}
+                    onChange={e =>
+                      updatePayload({
+                        preferences: (payload.preferences ?? []).map(x =>
+                          x.id === p.id ? { ...x, response_a: e.target.value } : x,
+                        ),
+                      })
+                    }
+                    placeholder="回复 A"
+                  />
+                  <textarea
+                    rows={3}
+                    className="w-full text-xs bg-[#12121a] border border-[#1e1e2e] rounded-lg px-2 py-1.5 resize-none"
+                    value={p.response_b}
+                    onChange={e =>
+                      updatePayload({
+                        preferences: (payload.preferences ?? []).map(x =>
+                          x.id === p.id ? { ...x, response_b: e.target.value } : x,
+                        ),
+                      })
+                    }
+                    placeholder="回复 B"
+                  />
+                  <div className="flex gap-2">
+                    {(['a', 'b', 'tie'] as const).map(w => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() =>
+                          updatePayload({
+                            preferences: (payload.preferences ?? []).map(x =>
+                              x.id === p.id ? { ...x, winner: w } : x,
+                            ),
+                          })
+                        }
+                        className={`text-xs px-2 py-1 rounded border ${
+                          p.winner === w ? 'border-[#8b5cf6] text-[#c4b5fd]' : 'border-[#1e1e2e] text-white/40'
+                        }`}
+                      >
+                        {w === 'tie' ? '平局' : `选 ${w.toUpperCase()}`}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="ml-auto text-xs text-red-400/80"
+                      onClick={() =>
+                        updatePayload({
+                          preferences: (payload.preferences ?? []).filter(x => x.id !== p.id),
+                        })
+                      }
+                    >
+                      删
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <div>
               <label className="text-xs text-white/40">图像描述 (Caption)</label>

@@ -8,6 +8,7 @@ export interface PointCloudAnnotationSession {
   boxes3d: Box3D[]
   labelClasses: LabelClass[]
   savedAt: string
+  pointLabels?: Record<string, string>
 }
 
 export function pointCloudSessionStorageKey(taskId: string) {
@@ -58,6 +59,10 @@ export function parsePointCloudPayload(
         ? (JSON.parse(JSON.stringify(payload.labelClasses)) as LabelClass[])
         : [],
       savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : new Date().toISOString(),
+      pointLabels:
+        payload.pointLabels && typeof payload.pointLabels === 'object'
+          ? (JSON.parse(JSON.stringify(payload.pointLabels)) as Record<string, string>)
+          : {},
     }
   }
 
@@ -70,6 +75,10 @@ export function parsePointCloudPayload(
         ? (JSON.parse(JSON.stringify(payload.labelClasses)) as LabelClass[])
         : [],
       savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : new Date().toISOString(),
+      pointLabels:
+        payload.pointLabels && typeof payload.pointLabels === 'object'
+          ? (JSON.parse(JSON.stringify(payload.pointLabels)) as Record<string, string>)
+          : {},
     }
   }
 
@@ -103,6 +112,7 @@ export function applyPointCloudSessionToStore(session: PointCloudAnnotationSessi
     selectedIds3d: [],
     past: [],
     future: [],
+    pointLabels: session.pointLabels ? { ...session.pointLabels } : {},
     ...(session.labelClasses?.length
       ? {
           labelClasses: JSON.parse(JSON.stringify(session.labelClasses)) as LabelClass[],
@@ -125,12 +135,14 @@ export function persistPointCloudSession(
   labelClasses: LabelClass[],
 ): string {
   const savedAt = new Date().toISOString()
+  const pointLabels = { ...useAnnotationStore.getState().pointLabels }
   const session: PointCloudAnnotationSession = {
     schema: POINTCLOUD_SESSION_SCHEMA,
     taskId,
     boxes3d: JSON.parse(JSON.stringify(boxes3d)) as Box3D[],
     labelClasses: JSON.parse(JSON.stringify(labelClasses)) as LabelClass[],
     savedAt,
+    pointLabels,
   }
   writePointCloudSession(session)
   syncPointCloudDraftToStore(taskId, savedAt, session.boxes3d)
@@ -142,13 +154,14 @@ export function persistPointCloudSession(
 }
 
 export function exportPointCloudSessionPayload(taskId: string): PointCloudAnnotationSession | null {
-  const { boxes3d, labelClasses } = useAnnotationStore.getState()
+  const { boxes3d, labelClasses, pointLabels } = useAnnotationStore.getState()
   return {
     schema: POINTCLOUD_SESSION_SCHEMA,
     taskId,
     boxes3d: JSON.parse(JSON.stringify(boxes3d)) as Box3D[],
     labelClasses: JSON.parse(JSON.stringify(labelClasses)) as LabelClass[],
     savedAt: new Date().toISOString(),
+    pointLabels: { ...pointLabels },
   }
 }
 

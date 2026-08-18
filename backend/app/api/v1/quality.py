@@ -132,12 +132,14 @@ def _version_payloads(db: Session, task: Task) -> List[Dict[str, Any]]:
 def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
     if not ann or not isinstance(ann.data, dict):
         return []
+    from app.services.exporters.common import modality_annotation
+
     data = ann.data
+    inner = modality_annotation(data)
     session = data.get("session") if isinstance(data.get("session"), dict) else data
     frames = session.get("frames") if isinstance(session, dict) else None
     boxes: List[Dict[str, Any]] = []
     if isinstance(frames, dict):
-        # 优先第 0 帧，否则合并各帧（审核预览）
         ordered_keys = sorted(frames.keys(), key=lambda k: int(k) if str(k).isdigit() else 0)
         for key in ordered_keys[:1] or list(frames.keys())[:1]:
             items = frames.get(key) or []
@@ -149,8 +151,9 @@ def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
     raw = data.get("annotations2d") or data.get("bbox")
     if isinstance(raw, list):
         return [x for x in raw if isinstance(x, dict)]
-    # OCR spans with bbox
-    spans = data.get("spans")
+    spans = inner.get("spans") if isinstance(inner, dict) else None
+    if not isinstance(spans, list):
+        spans = data.get("spans")
     if isinstance(spans, list):
         for s in spans:
             if not isinstance(s, dict) or not s.get("bbox"):
@@ -166,6 +169,19 @@ def _extract_preview_boxes(ann: Optional[Annotation]) -> List[Dict[str, Any]]:
     return boxes
 
 
+def _extract_image_class_labels(ann: Optional[Annotation]) -> List[str]:
+    if not ann or not isinstance(ann.data, dict):
+        return []
+    data = ann.data
+    session = data.get("session") if isinstance(data.get("session"), dict) else data
+    if not isinstance(session, dict):
+        return []
+    raw = session.get("classificationLabels") or session.get("classification_labels") or []
+    if isinstance(raw, list):
+        return [str(x) for x in raw if x]
+    return []
+
+
 def _extract_modality_preview(
     ann: Optional[Annotation],
     category: Optional[str],
@@ -174,8 +190,12 @@ def _extract_modality_preview(
     """NLP / 音频 / 视频 / OCR / 多模态审核摘要。"""
     if not ann or not isinstance(ann.data, dict):
         return None
-    data = ann.data
-    modality = str(data.get("modality") or "")
+    from app.services.exporters.common import modality_annotation
+
+    raw = ann.data
+    inner = modality_annotation(raw)
+    data = inner if inner else raw
+    modality = str(data.get("modality") or raw.get("modality") or "")
     if not modality:
         if category == "ocr" or (ann_type or "").startswith("ocr_"):
             modality = "ocr"
@@ -211,19 +231,36 @@ def _extract_modality_preview(
             "transcript": (data.get("transcript") or "")[:800],
             "speakers": data.get("speakers") or [],
             "segments": (data.get("segments") or [])[:30],
+            "emotion": data.get("emotion"),
+            "mos": data.get("mos"),
         }
     if modality == "video":
+        clips = []
+        for c in data.get("clips") or []:
+            if not isinstance(c, dict):
+                continue
+            clips.append(
+                {
+                    "start": c.get("start_sec", c.get("start")),
+                    "end": c.get("end_sec", c.get("end")),
+                    "label": c.get("label"),
+                }
+            )
+        tracks = data.get("tracks") or []
         return {
             "modality": "video",
             "caption": (data.get("caption") or "")[:400],
-            "clips": (data.get("clips") or [])[:20],
+            "clips": clips[:20],
             "frame_notes": data.get("frame_notes") or {},
+            "track_count": len(tracks) if isinstance(tracks, list) else 0,
+            "tracks": tracks[:12] if isinstance(tracks, list) else [],
         }
     if modality == "multimodal":
         return {
             "modality": "multimodal",
             "caption": (data.get("caption") or "")[:400],
             "vqa": data.get("vqa") or {},
+            "preferences": (data.get("preferences") or [])[:8],
         }
     return None
 
@@ -241,10 +278,15 @@ def _extract_pointcloud_preview(task: Task, ann: Optional[Annotation]) -> Option
     url = task.data_url or data.get("point_cloud_url") or data.get("url")
     if not url and not boxes:
         return None
+    session_payload = payload.get("session") if isinstance(payload.get("session"), dict) else payload
+    point_labels = {}
+    if isinstance(session_payload, dict) and isinstance(session_payload.get("pointLabels"), dict):
+        point_labels = session_payload["pointLabels"]
     return {
         "point_cloud_url": url,
         "boxes3d": boxes[:200],
         "box_count": len(boxes),
+        "point_label_count": len(point_labels),
     }
 
 
@@ -451,6 +493,7 @@ def get_review_task_detail(
         "assignee_name": task.assignee.username if task.assignee else None,
         "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
         "annotations2d": _extract_preview_boxes(preview_ann),
+        "classification_labels": _extract_image_class_labels(preview_ann),
         "embodied_preview": embodied_preview,
         "modality_preview": modality_preview,
         "pointcloud_preview": pointcloud_preview,

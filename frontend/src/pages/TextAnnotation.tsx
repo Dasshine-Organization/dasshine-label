@@ -22,7 +22,9 @@ export default function TextAnnotation() {
   const annType = ws?.ann_type ?? 'ner'
   const labels = ws?.label_classes ?? []
 
-  const spans = payload?.spans ?? []
+  const spans = ((payload?.spans ?? []) as TextSpan[]).filter(
+    (s): s is TextSpan => typeof (s as TextSpan).start === 'number',
+  )
   const backHref = getAnnotateBackHref({
     projectId: projectIdParam ?? ws?.project_id,
     category: ws?.category ?? 'nlp',

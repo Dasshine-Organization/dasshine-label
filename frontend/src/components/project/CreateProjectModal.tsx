@@ -459,25 +459,24 @@ const TOTAL = STEPS.length
 const FALLBACK_CATEGORIES = [
   { id: 'image_2d', label: '图像 2D', icon: 'image', color: '#00d4ff', types: [
       { id: 'bbox_2d', label: '矩形框', desc: '目标检测' },
-      { id: 'polygon', label: '多边形', desc: '实例分割' },
+      { id: 'polygon', label: '多边形', desc: '实例轮廓' },
       { id: 'polyline', label: '折线', desc: '车道线/骨架' },
-      { id: 'keypoint', label: '关键点', desc: '姿态估计' },
-      { id: 'segmentation', label: '语义分割', desc: '像素级分类' },
+      { id: 'keypoint', label: '关键点', desc: '姿态 · 可插 COCO-17' },
+      { id: 'segmentation', label: '语义分割', desc: '像素画笔' },
       { id: 'classification', label: '图像分类', desc: '整图标签' },
   ]},
   { id: 'pointcloud_3d', label: '3D 点云', icon: 'cube', color: '#a78bfa', types: [
       { id: 'bbox_3d', label: '3D 包围盒', desc: '自动驾驶检测' },
-      { id: 'lidar_seg', label: '点云分割', desc: '语义/实例分割' },
-      { id: 'lane_3d', label: '3D 车道线', desc: '高精地图' },
+      { id: 'lidar_seg', label: '点云分割', desc: '逐点语义刷' },
   ]},
   { id: 'video', label: '视频', icon: 'video', color: '#f59e0b', types: [
-      { id: 'video_tracking', label: '目标追踪', desc: '多帧 ID 关联' },
-      { id: 'video_action', label: '动作识别', desc: '时序片段标注' },
+      { id: 'video_tracking', label: '目标追踪', desc: '帧上画框 + track_id + 插值' },
+      { id: 'video_action', label: '动作识别', desc: '时序片段' },
       { id: 'video_caption', label: '视频描述', desc: '字幕/描述' },
   ]},
   { id: 'audio', label: '语音', icon: 'mic', color: '#10b981', types: [
       { id: 'asr', label: '语音转写', desc: 'ASR 标注' },
-      { id: 'tts_label', label: '语音质量', desc: 'TTS 评测' },
+      { id: 'tts_label', label: '语音质量', desc: 'TTS MOS' },
       { id: 'speaker_diarize', label: '说话人分离', desc: '多人对话' },
       { id: 'emotion_audio', label: '情绪识别', desc: '语音情感' },
   ]},
@@ -504,7 +503,7 @@ const FALLBACK_CATEGORIES = [
   { id: 'multimodal', label: '多模态', icon: 'layers', color: '#8b5cf6', types: [
       { id: 'image_caption', label: '图文描述', desc: 'Caption 生成' },
       { id: 'vqa', label: '视觉问答', desc: 'VQA 数据' },
-      { id: 'rlhf', label: 'RLHF 偏好', desc: '人类反馈对齐' },
+      { id: 'rlhf', label: 'RLHF 偏好', desc: '成对回复选择' },
   ]},
 ] as CategoryMeta[]
 

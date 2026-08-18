@@ -81,7 +81,7 @@ def _to_out(p: Project) -> dict:
 
 
 def _meta_categories() -> list:
-    """与前端 CreateProjectModal fallback 对齐"""
+    """与工作台工具对齐：能选的类型必须能标。lane_3d 无 3D 折线工具，不开放。"""
     return [
         {
             "id": "image_2d",
@@ -90,7 +90,10 @@ def _meta_categories() -> list:
             "color": "#00d4ff",
             "types": [
                 {"id": "bbox_2d", "label": "矩形框", "desc": "目标检测"},
-                {"id": "polygon", "label": "多边形", "desc": "实例分割"},
+                {"id": "polygon", "label": "多边形", "desc": "实例轮廓"},
+                {"id": "polyline", "label": "折线", "desc": "车道线/骨架"},
+                {"id": "keypoint", "label": "关键点", "desc": "姿态 · 可插 COCO-17"},
+                {"id": "segmentation", "label": "语义分割", "desc": "像素画笔"},
                 {"id": "classification", "label": "图像分类", "desc": "整图标签"},
             ],
         },
@@ -101,7 +104,7 @@ def _meta_categories() -> list:
             "color": "#a78bfa",
             "types": [
                 {"id": "bbox_3d", "label": "3D 包围盒", "desc": "自动驾驶检测"},
-                {"id": "lidar_seg", "label": "点云分割", "desc": "语义分割"},
+                {"id": "lidar_seg", "label": "点云分割", "desc": "逐点语义刷"},
             ],
         },
         {
@@ -110,7 +113,7 @@ def _meta_categories() -> list:
             "icon": "video",
             "color": "#f59e0b",
             "types": [
-                {"id": "video_tracking", "label": "目标追踪", "desc": "多帧 ID"},
+                {"id": "video_tracking", "label": "目标追踪", "desc": "帧上画框 + track_id + 插值"},
                 {"id": "video_action", "label": "动作识别", "desc": "时序片段"},
                 {"id": "video_caption", "label": "视频描述", "desc": "字幕/描述"},
             ],
@@ -124,6 +127,7 @@ def _meta_categories() -> list:
                 {"id": "asr", "label": "语音转写", "desc": "ASR"},
                 {"id": "speaker_diarize", "label": "说话人分离", "desc": "多人对话"},
                 {"id": "emotion_audio", "label": "情绪识别", "desc": "语音情感"},
+                {"id": "tts_label", "label": "语音质量", "desc": "TTS MOS"},
             ],
         },
         {
@@ -133,9 +137,12 @@ def _meta_categories() -> list:
             "color": "#ec4899",
             "types": [
                 {"id": "ner", "label": "命名实体识别", "desc": "NER"},
+                {"id": "re", "label": "关系抽取", "desc": "实体关系"},
                 {"id": "sentiment", "label": "情感分析", "desc": "情感极性"},
                 {"id": "text_classify", "label": "文本分类", "desc": "多标签"},
                 {"id": "qa_pair", "label": "问答对", "desc": "SFT"},
+                {"id": "summarization", "label": "摘要", "desc": "文本压缩"},
+                {"id": "translation", "label": "翻译", "desc": "双语对齐"},
             ],
         },
         {
@@ -143,14 +150,23 @@ def _meta_categories() -> list:
             "label": "具身机器人",
             "icon": "robot",
             "color": "#f97316",
-            "types": [{"id": "robot_action", "label": "动作序列", "desc": "操作步骤"}],
+            "types": [
+                {"id": "robot_traj", "label": "轨迹标注", "desc": "运动路径"},
+                {"id": "robot_action", "label": "动作序列", "desc": "操作步骤"},
+                {"id": "robot_grasp", "label": "抓取标注", "desc": "抓取点/姿态"},
+                {"id": "robot_scene", "label": "场景理解", "desc": "空间关系"},
+            ],
         },
         {
             "id": "ocr",
             "label": "OCR",
             "icon": "scan",
             "color": "#06b6d4",
-            "types": [{"id": "ocr_text", "label": "文字检测识别", "desc": "OCR"}],
+            "types": [
+                {"id": "ocr_text", "label": "文字检测识别", "desc": "端到端 OCR"},
+                {"id": "ocr_layout", "label": "版面分析", "desc": "区域分类"},
+                {"id": "ocr_table", "label": "表格识别", "desc": "行列单元格"},
+            ],
         },
         {
             "id": "multimodal",
@@ -160,6 +176,7 @@ def _meta_categories() -> list:
             "types": [
                 {"id": "image_caption", "label": "图文描述", "desc": "Caption"},
                 {"id": "vqa", "label": "视觉问答", "desc": "VQA"},
+                {"id": "rlhf", "label": "RLHF 偏好", "desc": "成对回复选择"},
             ],
         },
     ]

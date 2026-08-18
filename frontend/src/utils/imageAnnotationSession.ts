@@ -13,6 +13,7 @@ export interface ImageAnnotationSessionV2 {
   frames: Record<string, Annotation2D[]>
   labelClasses: LabelClass[]
   savedAt: string
+  classificationLabels?: string[]
 }
 
 export function imageSessionStorageKey(taskId: string) {
@@ -97,7 +98,8 @@ export function persistImageSessionSlice(
   frameIndex: number,
   currentIdxForMeta: number,
   annotations2d: Annotation2D[],
-  labelClasses: LabelClass[]
+  labelClasses: LabelClass[],
+  extra?: { classificationLabels?: string[] },
 ): string {
   const prev = readImageSession(taskId)
   const frames = { ...(prev?.frames ?? {}) }
@@ -110,6 +112,7 @@ export function persistImageSessionSlice(
     frames,
     labelClasses: JSON.parse(JSON.stringify(labelClasses)) as LabelClass[],
     savedAt,
+    classificationLabels: extra?.classificationLabels ?? prev?.classificationLabels ?? [],
   })
   syncSessionDraftsToStore(taskId)
   return savedAt
@@ -162,6 +165,9 @@ export function parseImageSessionPayload(
       frames: JSON.parse(JSON.stringify(payload.frames)) as Record<string, Annotation2D[]>,
       labelClasses: Array.isArray(payload.labelClasses)
         ? (JSON.parse(JSON.stringify(payload.labelClasses)) as LabelClass[])
+        : [],
+      classificationLabels: Array.isArray(payload.classificationLabels)
+        ? (payload.classificationLabels as string[])
         : [],
       savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : new Date().toISOString(),
     }

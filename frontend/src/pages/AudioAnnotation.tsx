@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
+import AudioWaveform from '../components/annotation/AudioWaveform'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
@@ -40,6 +41,7 @@ export default function AudioAnnotation() {
       end_ms: Math.round(end),
       speaker: speakers[0] ?? '说话人 A',
       text: '',
+      emotion: '',
     }
     updatePayload({ segments: [...segments, seg].sort((a, b) => a.start_ms - b.start_ms) })
     setMarkStart(null)
@@ -93,6 +95,16 @@ export default function AudioAnnotation() {
             className="w-full"
             onTimeUpdate={() => setCurrentMs((audioRef.current?.currentTime ?? 0) * 1000)}
             onLoadedMetadata={() => setDurationMs((audioRef.current?.duration ?? 0) * 1000)}
+          />
+          <AudioWaveform
+            url={url}
+            currentMs={currentMs}
+            durationMs={durationMs}
+            segments={segments}
+            onSeek={ms => {
+              setCurrentMs(ms)
+              if (audioRef.current) audioRef.current.currentTime = ms / 1000
+            }}
           />
           <div className="rounded-xl border border-[#1e1e2e] bg-[#12121a] p-3">
             <div className="flex justify-between text-[10px] text-white/35 font-mono mb-2">
@@ -148,6 +160,37 @@ export default function AudioAnnotation() {
               />
             </div>
           )}
+          {annType === 'emotion_audio' && (
+            <div>
+              <label className="text-xs text-white/40">整段情绪</label>
+              <select
+                className="mt-1 w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm"
+                value={payload.emotion ?? ''}
+                onChange={e => updatePayload({ emotion: e.target.value })}
+              >
+                <option value="">未选</option>
+                {['neutral', 'happy', 'sad', 'angry', 'fear', 'surprise'].map(em => (
+                  <option key={em} value={em}>
+                    {em}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {annType === 'tts_label' && (
+            <div>
+              <label className="text-xs text-white/40">MOS 音质 (1–5)</label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                step={0.1}
+                className="mt-1 w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm"
+                value={payload.mos ?? ''}
+                onChange={e => updatePayload({ mos: Number(e.target.value) || null })}
+              />
+            </div>
+          )}
         </section>
 
         <aside className="lg:col-span-5 p-4 overflow-y-auto">
@@ -169,7 +212,7 @@ export default function AudioAnnotation() {
                     删
                   </button>
                 </div>
-                {annType === 'speaker_diarize' && (
+                {(annType === 'speaker_diarize' || annType === 'asr') && (
                   <select
                     value={s.speaker}
                     onChange={e => updateSeg(s.id, { speaker: e.target.value })}
@@ -181,6 +224,28 @@ export default function AudioAnnotation() {
                       </option>
                     ))}
                   </select>
+                )}
+                {(annType === 'emotion_audio' || annType === 'tts_label') && (
+                  <select
+                    value={s.emotion ?? ''}
+                    onChange={e => updateSeg(s.id, { emotion: e.target.value })}
+                    className="w-full text-xs bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1"
+                  >
+                    <option value="">情绪 / 风格</option>
+                    {['neutral', 'happy', 'sad', 'angry', 'fear', 'surprise'].map(em => (
+                      <option key={em} value={em}>
+                        {em}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {annType === 'tts_label' && (
+                  <input
+                    className="w-full text-xs bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1"
+                    placeholder="问题（杂音/截断/发音）"
+                    value={s.issues ?? ''}
+                    onChange={e => updateSeg(s.id, { issues: e.target.value })}
+                  />
                 )}
                 <textarea
                   rows={2}

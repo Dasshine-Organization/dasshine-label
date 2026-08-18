@@ -43,6 +43,7 @@ import {
 } from '../services/prelabel'
 import { taskApi } from '../services/api'
 import { getAnnotateBackHref, isDemoTaskId } from '../utils/annotationRoutes'
+import { coco17Points, COCO17_JOINTS } from '../utils/cocoSkeleton'
 
 const MOCK_IMAGES = [
   'https://images.unsplash.com/photo-1545558014-8692077e9b5c?w=1280&q=80',
@@ -116,6 +117,10 @@ export default function ImageAnnotation() {
 
   const [taskImageUrl, setTaskImageUrl] = useState<string | null>(null)
   const [taskImageName, setTaskImageName] = useState<string | null>(null)
+  const [annType, setAnnType] = useState('bbox_2d')
+  const [classificationLabels, setClassificationLabels] = useState<string[]>([])
+  const classLabelsRef = useRef<string[]>([])
+  classLabelsRef.current = classificationLabels
   const [, setTaskLoading] = useState(false)
   const imageSources = useMemo(() => {
     if (taskImageUrl) return [taskImageUrl]
@@ -209,7 +214,9 @@ export default function ImageAnnotation() {
 
   const persistNow = useCallback((showSavedToast = false) => {
     const { annotations2d: a2, labelClasses: lc } = useAnnotationStore.getState()
-    const savedAt = persistImageSessionSlice(taskId, currentIdx, currentIdx, a2, lc)
+    const savedAt = persistImageSessionSlice(taskId, currentIdx, currentIdx, a2, lc, {
+      classificationLabels: classLabelsRef.current,
+    })
     setLastSavedAt(savedAt)
     if (showSavedToast) acknowledgeManualDraftSave()
     if (useBackendTask) {
@@ -229,6 +236,13 @@ export default function ImageAnnotation() {
     const payload = exportImageSessionPayload(taskId)
     if (!payload) {
       message.warning('暂无标注内容可提交')
+      return
+    }
+    if (
+      (annType === 'classification' || annType === 'image_classification') &&
+      !(payload.classificationLabels && payload.classificationLabels.length)
+    ) {
+      message.warning('请选择至少一个分类标签')
       return
     }
     try {
@@ -253,6 +267,7 @@ export default function ImageAnnotation() {
     numericTaskId,
     notifyTaskStatus,
     projectQueue.refreshTasks,
+    annType,
   ])
 
   useEffect(() => {
@@ -281,6 +296,9 @@ export default function ImageAnnotation() {
         if (data.data_url) {
           setTaskImageUrl(data.data_url)
           setTaskImageName(data.filename ?? `task_${id}`)
+        }
+        if (typeof data.ann_type === 'string' && data.ann_type) {
+          setAnnType(data.ann_type)
         }
       })
       .catch(() => {
@@ -389,6 +407,7 @@ export default function ImageAnnotation() {
         setCurrentIdx(idx)
         prevIdxRef.current = idx
         setLastSavedAt(merged.savedAt)
+        setClassificationLabels(merged.classificationLabels ?? [])
       } else {
         prevIdxRef.current = 0
         useAnnotationStore.setState({
@@ -412,7 +431,9 @@ export default function ImageAnnotation() {
     const prev = prevIdxRef.current
     if (prev !== null && prev !== currentIdx) {
       const { annotations2d: a2, labelClasses: lc } = useAnnotationStore.getState()
-      persistImageSessionSlice(taskId, prev, prev, a2, lc)
+      persistImageSessionSlice(taskId, prev, prev, a2, lc, {
+        classificationLabels: classLabelsRef.current,
+      })
       applyFrameToStore(currentIdx, taskId)
       setLastSavedAt(new Date().toISOString())
       syncSessionDraftsToStore(taskId)
@@ -426,7 +447,7 @@ export default function ImageAnnotation() {
       persistNow()
     }, 500)
     return () => window.clearTimeout(t)
-  }, [annotations2d, labelClasses, currentIdx, taskId, hydrated, persistNow])
+  }, [annotations2d, labelClasses, currentIdx, taskId, hydrated, persistNow, classificationLabels])
 
   useEffect(() => {
     if (!hydrated) return
@@ -437,6 +458,43 @@ export default function ImageAnnotation() {
   const currentImage = imageSources[currentIdx % imageSources.length]
   const imageName =
     taskImageName ?? `frame_${String(currentIdx + 1).padStart(4, '0')}.jpg`
+  const isClassify = annType === 'classification' || annType === 'image_classification'
+  const isKeypoint = annType === 'keypoint'
+
+  useEffect(() => {
+    const s = useAnnotationStore.getState()
+    if (annType === 'polygon') s.setTool2d('polygon')
+    else if (annType === 'polyline') s.setTool2d('polyline')
+    else if (annType === 'keypoint') s.setTool2d('keypoint')
+    else if (annType === 'segmentation') s.setTool2d('brush')
+    else s.setTool2d('bbox')
+  }, [annType])
+
+  function insertCocoSkeleton() {
+    if (!currentImage) return
+    const img = new Image()
+    img.onload = () => {
+      const skeletonId = `sk_${Date.now().toString(36)}`
+      const pts = coco17Points(img.naturalWidth || 1280, img.naturalHeight || 720)
+      const store = useAnnotationStore.getState()
+      pts.forEach((p, i) => {
+        const name = COCO17_JOINTS[i]
+        store.addAnnotation2d({
+          id: crypto.randomUUID(),
+          type: 'keypoint',
+          label: name,
+          color: store.labelClasses[0]?.color ?? '#00d4ff',
+          points: [p],
+          visible: true,
+          locked: false,
+          attributes: { skeletonId, joint: name, jointIndex: i },
+        })
+      })
+      store.setTool2d('select')
+      message.success('已插入 COCO-17 姿态，可拖拽各关节点')
+    }
+    img.src = currentImage
+  }
 
   const goNext = () => {
     setCurrentIdx(i => Math.min(i + 1, imageSources.length - 1))
@@ -581,10 +639,45 @@ export default function ImageAnnotation() {
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <AnnotationToolbar />
+        {!isClassify && <AnnotationToolbar />}
 
         <div className="flex-1 relative overflow-hidden">
-          <Canvas2D imageUrl={currentImage} />
+          {isClassify ? (
+            <div className="h-full flex flex-col items-center justify-center gap-6 p-6 bg-black/30">
+              {currentImage ? (
+                <img src={currentImage} alt="" className="max-h-[55vh] max-w-full object-contain rounded-lg" />
+              ) : (
+                <div className="text-white/35 text-sm">无图像</div>
+              )}
+              <div className="text-xs text-white/40">整图分类（可多选）</div>
+              <div className="flex flex-wrap gap-2 justify-center max-w-xl">
+                {labelClasses.map(lc => {
+                  const on = classificationLabels.includes(lc.name)
+                  return (
+                    <button
+                      key={lc.id}
+                      type="button"
+                      onClick={() =>
+                        setClassificationLabels(prev =>
+                          on ? prev.filter(n => n !== lc.name) : [...prev, lc.name],
+                        )
+                      }
+                      className="px-3 py-1.5 rounded-lg text-sm border"
+                      style={{
+                        borderColor: on ? lc.color : '#1e1e2e',
+                        background: on ? `${lc.color}22` : '#12121a',
+                        color: on ? lc.color : '#94a3b8',
+                      }}
+                    >
+                      {lc.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <Canvas2D imageUrl={currentImage} />
+          )}
 
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-wrap items-center justify-center gap-2 z-20 pointer-events-auto max-w-[95vw]">
             <div className="flex flex-col gap-1 px-2 py-1.5 rounded-lg text-xs border border-white/10 bg-black/50 backdrop-blur-sm max-w-[min(100%,520px)]">
@@ -650,6 +743,16 @@ export default function ImageAnnotation() {
               )}
               {aiLoading ? 'AI 预标注中…' : 'AI 预标注'}
             </button>
+
+            {isKeypoint && (
+              <button
+                type="button"
+                onClick={insertCocoSkeleton}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border backdrop-blur-sm bg-black/50 border-[#00d4ff]/30 text-[#00d4ff] hover:bg-[#00d4ff]/15"
+              >
+                插入 COCO-17 姿态
+              </button>
+            )}
 
             {loadedModel && (
               <Tooltip title={loadStatusMessage || loadedModel.status_message}>

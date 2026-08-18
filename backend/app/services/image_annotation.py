@@ -33,6 +33,15 @@ def _boxes3d_have_labels(payload: Dict[str, Any]) -> bool:
 
 
 def _payload_has_work(payload: Dict[str, Any]) -> bool:
+    labels = payload.get("classificationLabels") or payload.get("classification_labels")
+    if isinstance(labels, list) and len(labels) > 0:
+        return True
+    pixels = payload.get("pixelLabels")
+    if isinstance(pixels, dict) and len(pixels) > 0:
+        return True
+    points = payload.get("pointLabels")
+    if isinstance(points, dict) and len(points) > 0:
+        return True
     return _frames_have_labels(payload) or _boxes3d_have_labels(payload)
 
 

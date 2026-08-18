@@ -136,7 +136,10 @@ export default function PointCloudAnnotation() {
       return
     }
     const payload = exportPointCloudSessionPayload(taskId)
-    if (!payload || payload.boxes3d.length === 0) {
+    if (
+      !payload ||
+      (payload.boxes3d.length === 0 && Object.keys(payload.pointLabels || {}).length === 0)
+    ) {
       message.warning('暂无 3D 标注可提交')
       return
     }
@@ -194,6 +197,13 @@ export default function PointCloudAnnotation() {
             const { data: task } = await taskApi.getById(numericTaskId)
             if (!cancelled && task?.data_url) {
               setPointCloudUrl(String(task.data_url))
+            }
+            if (!cancelled && typeof task?.ann_type === 'string') {
+              if (task.ann_type === 'lidar_seg') {
+                useAnnotationStore.getState().setTool3d('point')
+              } else {
+                useAnnotationStore.getState().setTool3d('box3d')
+              }
             }
           } catch {
             /* 无 data_url 时回退 demo / 合成点云 */
@@ -333,6 +343,11 @@ export default function PointCloudAnnotation() {
           <Scene3DWorkspace taskId={taskId} pointCloudUrl={pointCloudUrl} />
 
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 z-20 pointer-events-auto">
+            {Object.keys(pointLabels).length > 0 && (
+              <div className="flex items-center gap-2 bg-black/50 backdrop-blur-sm border border-[#a78bfa]/20 text-[#a78bfa]/80 text-[10px] px-2.5 py-1.5 rounded-lg">
+                点标签 {Object.keys(pointLabels).length}
+              </div>
+            )}
             <button
               onClick={loadAI3D}
               disabled={aiLoading}

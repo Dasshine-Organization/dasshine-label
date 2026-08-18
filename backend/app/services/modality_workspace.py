@@ -46,7 +46,10 @@ def resolve_modality(category: Optional[str], ann_type: Optional[str]) -> str:
 def default_payload(modality: str, ann_type: str) -> Dict[str, Any]:
     base = {"schema": "dasshine.modality.v1", "modality": modality, "ann_type": ann_type}
     if modality == "ocr":
-        return {**base, "spans": []}  # {id,text,bbox:[x,y,w,h],label?}
+        payload = {**base, "spans": []}  # {id,text,bbox:[x,y,w,h],label?,rows?,cols?,cells?}
+        if ann_type == "ocr_table":
+            payload["spans"] = []
+        return payload
     if modality == "text":
         return {
             **base,
@@ -63,6 +66,8 @@ def default_payload(modality: str, ann_type: str) -> Dict[str, Any]:
             "segments": [],
             "transcript": "",
             "speakers": ["说话人 A", "说话人 B"],
+            "emotion": None,
+            "mos": None,
         }
     if modality == "video":
         return {
@@ -70,9 +75,15 @@ def default_payload(modality: str, ann_type: str) -> Dict[str, Any]:
             "clips": [],
             "caption": "",
             "frame_notes": {},
+            "tracks": [],
         }
     if modality == "multimodal":
-        return {**base, "caption": "", "vqa": {"question": "", "answer": ""}}
+        return {
+            **base,
+            "caption": "",
+            "vqa": {"question": "", "answer": ""},
+            "preferences": [],
+        }
     return {**base, "caption": "", "vqa": {"question": "", "answer": ""}}
 
 
@@ -154,11 +165,27 @@ def get_workspace(
             {"id": "LOC", "name": "地点", "color": "#10b981"},
         ]
     if modality == "ocr" and not label_classes:
-        label_classes = [
-            {"id": "text", "name": "文字", "color": "#06b6d4"},
-            {"id": "title", "name": "标题", "color": "#f97316"},
-            {"id": "table", "name": "表格", "color": "#a78bfa"},
-        ]
+        if ann_type == "ocr_layout":
+            label_classes = [
+                {"id": "title", "name": "标题", "color": "#f97316"},
+                {"id": "paragraph", "name": "段落", "color": "#06b6d4"},
+                {"id": "figure", "name": "图像", "color": "#10b981"},
+                {"id": "table", "name": "表格", "color": "#a78bfa"},
+                {"id": "list", "name": "列表", "color": "#f59e0b"},
+                {"id": "header", "name": "页眉", "color": "#64748b"},
+                {"id": "footer", "name": "页脚", "color": "#94a3b8"},
+            ]
+        elif ann_type == "ocr_table":
+            label_classes = [
+                {"id": "table", "name": "表格", "color": "#a78bfa"},
+                {"id": "cell", "name": "单元格", "color": "#06b6d4"},
+            ]
+        else:
+            label_classes = [
+                {"id": "text", "name": "文字", "color": "#06b6d4"},
+                {"id": "title", "name": "标题", "color": "#f97316"},
+                {"id": "table", "name": "表格", "color": "#a78bfa"},
+            ]
 
     return {
         "task_id": task.id,

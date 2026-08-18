@@ -122,3 +122,10 @@
 - 共编引擎 Automerge；稀疏像素 / 逐点标签 CRDT；2D 画笔与点云 `point` 工具
 - `fuse` / `nfs` 挂载；内核 mount 探测与可选执行；`python -m app.cli.fuse_mount`
 - Stripe Tax + Connect Express 入驻与 destination charge
+
+## P15 工作台诚实化
+
+- 计划：`docs/p15_workbench_honesty.md`
+- 视频 MOT：帧上画框 + track_id + 关键帧插值；jsonl 导出 tracks
+- 图像整图分类、COCO-17 姿态模板；OCR 版面/表格；语音波形与情绪/MOS；多模态 RLHF 偏好对
+- 点云分割默认逐点刷；创建向导与工具对齐，**不下发** `lane_3d`

@@ -11,7 +11,36 @@ type OcrSpan = {
   id: string
   text: string
   label: string
-  bbox: [number, number, number, number] // xywh in natural image pixels
+  bbox: [number, number, number, number]
+  rows?: number
+  cols?: number
+  cells?: Array<{ r: number; c: number; text: string; bbox: number[] }>
+}
+
+const LAYOUT_DEFAULT = 'paragraph'
+
+function splitTable(
+  bbox: [number, number, number, number],
+  rows: number,
+  cols: number,
+  prev?: OcrSpan['cells'],
+) {
+  const [x, y, w, h] = bbox
+  const cells: NonNullable<OcrSpan['cells']> = []
+  const rN = Math.max(1, rows)
+  const cN = Math.max(1, cols)
+  for (let r = 0; r < rN; r++) {
+    for (let c = 0; c < cN; c++) {
+      const old = prev?.find(cell => cell.r === r && cell.c === c)
+      cells.push({
+        r,
+        c,
+        text: old?.text ?? '',
+        bbox: [x + (c * w) / cN, y + (r * h) / rN, w / cN, h / rN],
+      })
+    }
+  }
+  return cells
 }
 
 function asOcrSpans(raw: unknown): OcrSpan[] {
@@ -32,6 +61,9 @@ function asOcrSpans(raw: unknown): OcrSpan[] {
         text: String(s.text || s.label || ''),
         label: String(s.label || 'text'),
         bbox,
+        rows: typeof s.rows === 'number' ? s.rows : undefined,
+        cols: typeof s.cols === 'number' ? s.cols : undefined,
+        cells: Array.isArray(s.cells) ? (s.cells as OcrSpan['cells']) : undefined,
       }
     })
 }
@@ -41,21 +73,8 @@ export default function OcrAnnotation() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const projectIdParam = searchParams.get('projectId')
-  const {
-    ws,
-    payload,
-    setPayload,
-    loading,
-    saving,
-    lastSavedAt,
-    useBackend,
-    persist,
-    submit,
-    lock,
-    lockBlocked,
-    peers,
-    connected,
-  } = useModalityWorkspace(taskId, 'ocr', 'ocr_text')
+  const { ws, payload, setPayload, loading, saving, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
+    useModalityWorkspace(taskId, 'ocr', 'ocr_text')
 
   const imgRef = useRef<HTMLImageElement>(null)
   const [natural, setNatural] = useState({ w: 1, h: 1 })
@@ -115,7 +134,19 @@ export default function OcrAnnotation() {
     setDrawing(null)
     if (w < 4 || h < 4) return
     const id = `ocr_${Date.now().toString(36)}`
-    const next: OcrSpan = { id, text: '', label: 'text', bbox: [x, y, w, h] }
+    const annType = ws?.ann_type ?? 'ocr_text'
+    const defaultLabel =
+      annType === 'ocr_layout'
+        ? (ws?.label_classes?.[0]?.id || LAYOUT_DEFAULT)
+        : annType === 'ocr_table'
+          ? 'table'
+          : (ws?.label_classes?.[0]?.id || 'text')
+    const next: OcrSpan = { id, text: '', label: defaultLabel, bbox: [x, y, w, h] }
+    if (annType === 'ocr_table') {
+      next.rows = 2
+      next.cols = 2
+      next.cells = splitTable(next.bbox, 2, 2)
+    }
     updateSpans([...spans, next])
     setSelectedId(id)
   }
@@ -128,9 +159,10 @@ export default function OcrAnnotation() {
   }
 
   const handleSubmit = async () => {
+    if (!payload) return
     setSubmitting(true)
     try {
-      await persist(true)
+      await persist(payload, false)
       await submit()
       message.success('OCR 标注已提交')
     } catch {
@@ -154,14 +186,23 @@ export default function OcrAnnotation() {
       <header className="flex items-center gap-3 px-4 py-3 border-b border-[#1e1e2e] bg-[#12121a]">
         <button
           type="button"
-          onClick={() => navigate(getAnnotateBackHref(searchParams))}
+          onClick={() =>
+            navigate(
+              getAnnotateBackHref({
+                projectId: projectIdParam ?? ws.project_id,
+                category: ws.category ?? 'ocr',
+              }),
+            )
+          }
           className="text-xs text-white/50 hover:text-white"
         >
           ← 返回
         </button>
         <div className="min-w-0">
           <div className="text-sm font-medium truncate">{ws.project_name}</div>
-          <div className="text-[10px] text-white/35 font-mono">OCR · task {ws.task_id}</div>
+          <div className="text-[10px] text-white/35 font-mono">
+            OCR · {ws.ann_type} · task {ws.task_id}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[10px] text-white/30">
@@ -170,7 +211,7 @@ export default function OcrAnnotation() {
           <ProjectExportMenu projectId={projectIdParam || String(ws.project_id)} projectName={ws.project_name} compact />
           <button
             type="button"
-            onClick={() => void persist(true)}
+            onClick={() => payload && void persist(payload, false)}
             className="text-xs px-3 py-1.5 rounded-lg border border-[#1e1e2e] text-white/60"
           >
             保存草稿
@@ -248,7 +289,13 @@ export default function OcrAnnotation() {
         <section className="xl:col-span-4 space-y-3">
           <div className="rounded-xl border border-[#1e1e2e] bg-[#12121a] p-4 space-y-2">
             <div className="text-[11px] text-white/40 uppercase tracking-widest">文字框 {spans.length}</div>
-            <p className="text-[10px] text-white/30">在图像上拖拽绘制框，再填写识别文字。导出对齐 coco_text / paddleocr。</p>
+            <p className="text-[10px] text-white/30">
+              {ws.ann_type === 'ocr_layout'
+                ? '框选版面区域并选择类别（标题/段落/表格等）。'
+                : ws.ann_type === 'ocr_table'
+                  ? '框选表格后设置行列，填写单元格。'
+                  : '在图像上拖拽绘制框，再填写识别文字。导出对齐 coco_text / paddleocr。'}
+            </p>
             <div className="max-h-[40vh] overflow-y-auto space-y-2">
               {spans.map(s => (
                 <button
@@ -294,6 +341,86 @@ export default function OcrAnnotation() {
                   </option>
                 ))}
               </select>
+              {(ws.ann_type === 'ocr_table' || selected.label === 'table') && (
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[11px] text-white/40">
+                    行
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={selected.rows ?? 2}
+                      onChange={e => {
+                        const rows = Math.max(1, Number(e.target.value) || 1)
+                        updateSpans(
+                          spans.map(s =>
+                            s.id === selected.id
+                              ? {
+                                  ...s,
+                                  rows,
+                                  cols: s.cols ?? 2,
+                                  cells: splitTable(s.bbox, rows, s.cols ?? 2, s.cells),
+                                }
+                              : s,
+                          ),
+                        )
+                      }}
+                      className="w-full mt-1 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1"
+                    />
+                  </label>
+                  <label className="text-[11px] text-white/40">
+                    列
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={selected.cols ?? 2}
+                      onChange={e => {
+                        const cols = Math.max(1, Number(e.target.value) || 1)
+                        updateSpans(
+                          spans.map(s =>
+                            s.id === selected.id
+                              ? {
+                                  ...s,
+                                  cols,
+                                  rows: s.rows ?? 2,
+                                  cells: splitTable(s.bbox, s.rows ?? 2, cols, s.cells),
+                                }
+                              : s,
+                          ),
+                        )
+                      }}
+                      className="w-full mt-1 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1"
+                    />
+                  </label>
+                </div>
+              )}
+              {(selected.cells || []).length > 0 && (
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {selected.cells!.map(cell => (
+                    <input
+                      key={`${cell.r}-${cell.c}`}
+                      value={cell.text}
+                      placeholder={`r${cell.r + 1}c${cell.c + 1}`}
+                      onChange={e =>
+                        updateSpans(
+                          spans.map(s =>
+                            s.id === selected.id
+                              ? {
+                                  ...s,
+                                  cells: (s.cells || []).map(x =>
+                                    x.r === cell.r && x.c === cell.c ? { ...x, text: e.target.value } : x,
+                                  ),
+                                }
+                              : s,
+                          ),
+                        )
+                      }
+                      className="w-full text-[11px] bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1"
+                    />
+                  ))}
+                </div>
+              )}
               <button
                 type="button"
                 className="text-xs text-red-400"
