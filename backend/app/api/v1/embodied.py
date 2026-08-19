@@ -55,6 +55,9 @@ from app.services.embodied_policy_weights import (
 from app.services.project_acl import can_access_task_workspace
 
 router = APIRouter(prefix="/embodied", tags=["具身标注"])
+
+
+def _episode_to_api(ep: Dict[str, Any], task=None) -> EmbodiedEpisodeSchema:
     streams = []
     for s in ep.get("streams") or []:
         streams.append(
