@@ -165,6 +165,9 @@ export default function ReviewQueue() {
   const [acting, setActing] = useState(false)
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 })
+  const [rejectTargets, setRejectTargets] = useState<
+    Array<{ object_id: string; label?: string; note?: string }>
+  >([])
 
   useEffect(() => {
     if (isError) {
@@ -197,6 +200,7 @@ export default function ReviewQueue() {
         if (!cancelled) {
           setDetail(data)
           setFeedback('')
+          setRejectTargets([])
           const versions = (data.versions || []) as ReviewDetail['versions']
           const initial =
             data.canonical_annotation_id ||
@@ -245,6 +249,34 @@ export default function ReviewQueue() {
     }
   }, [detail, selectedVersionId])
 
+  const rejectableObjects = useMemo(() => {
+    if (!view) return [] as Array<{ object_id: string; label: string }>
+    const out: Array<{ object_id: string; label: string }> = []
+    for (const ann of view.annotations2d || []) {
+      const id = String(ann.id || '')
+      if (!id) continue
+      out.push({ object_id: id, label: String(ann.label || ann.type || id) })
+    }
+    for (const sp of view.modality_preview?.spans || []) {
+      const id = String(sp.id || '')
+      if (!id) continue
+      out.push({
+        object_id: id,
+        label: String(sp.label || sp.text || id),
+      })
+    }
+    return out
+  }, [view])
+
+  function toggleRejectTarget(objectId: string, label: string) {
+    setRejectTargets(prev => {
+      if (prev.some(t => t.object_id === objectId)) {
+        return prev.filter(t => t.object_id !== objectId)
+      }
+      return [...prev, { object_id: objectId, label }]
+    })
+  }
+
   async function decide(decision: 'approved' | 'rejected') {
     if (!selectedId) return
     if (decision === 'rejected' && !feedback.trim()) {
@@ -264,11 +296,13 @@ export default function ReviewQueue() {
         feedback: feedback.trim() || undefined,
         canonical_annotation_id:
           decision === 'approved' ? selectedVersionId || undefined : undefined,
+        targets: decision === 'rejected' && rejectTargets.length > 0 ? rejectTargets : undefined,
       })
       message.success(data.message ?? (decision === 'approved' ? '已通过' : '已驳回'))
       setSelectedId(null)
       setDetail(null)
       setSelectedVersionId(null)
+      setRejectTargets([])
       await load()
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
@@ -602,6 +636,31 @@ export default function ReviewQueue() {
                   placeholder="审核意见（驳回时必填）"
                   className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-3 py-2 text-sm text-white/80 resize-none"
                 />
+                {rejectableObjects.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="text-[10px] text-white/35">驳回定位（可选，点选问题对象）</div>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {rejectableObjects.map(obj => {
+                        const on = rejectTargets.some(t => t.object_id === obj.object_id)
+                        return (
+                          <button
+                            key={obj.object_id}
+                            type="button"
+                            onClick={() => toggleRejectTarget(obj.object_id, obj.label)}
+                            className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                              on
+                                ? 'border-[#ef4444]/50 bg-[#ef4444]/15 text-[#ef4444]'
+                                : 'border-white/10 text-white/45 hover:border-white/25'
+                            }`}
+                            title={obj.object_id}
+                          >
+                            {obj.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button
                     type="button"

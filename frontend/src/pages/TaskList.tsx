@@ -126,6 +126,32 @@ export default function TaskList() {
     startTask(task)
   }
 
+  async function claimNext() {
+    if (!token) {
+      message.warning('请先登录')
+      return
+    }
+    try {
+      const { data } = await taskApi.claimNext()
+      message.success('已领取下一题')
+      await load()
+      startTask({
+        id: Number(data.task.id),
+        project: String(data.task.project_name || data.task.project || ''),
+        project_id: data.task.project_id != null ? Number(data.task.project_id) : undefined,
+        type: String(data.task.type || data.task.ann_type || ''),
+        ann_type: data.task.ann_type as string | undefined,
+        category: data.task.category as string | undefined,
+        status: String(data.task.status || 'annotating'),
+        priority: Number(data.task.priority ?? 0),
+        reward: Number(data.task.reward ?? 0),
+      } as TaskRow)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail ?? '领取下一题失败')
+    }
+  }
+
   const title =
     categoryFilter && CATEGORY_LABEL[categoryFilter]
       ? `${CATEGORY_LABEL[categoryFilter]}任务`
@@ -142,7 +168,19 @@ export default function TaskList() {
             </p>
           )}
         </div>
-        {loading && <span className="text-xs text-white/30">同步中…</span>}
+        <div className="flex items-center gap-3">
+          {loading && <span className="text-xs text-white/30">同步中…</span>}
+          {token && (
+            <button
+              type="button"
+              onClick={() => void claimNext()}
+              className="text-xs px-3 py-1.5 rounded-lg bg-[#00d4ff]/10 text-[#00d4ff] border border-[#00d4ff]/20
+                hover:bg-[#00d4ff]/20 active:scale-95 transition-all"
+            >
+              领取下一题
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-1 mb-6 bg-[#12121a] border border-[#1e1e2e] rounded-xl p-1 w-fit flex-wrap">

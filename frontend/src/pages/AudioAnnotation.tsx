@@ -4,6 +4,9 @@ import ModalityShell from '../components/annotation/ModalityShell'
 import AudioWaveform from '../components/annotation/AudioWaveform'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { useAutoLabel } from '../hooks/useAutoLabel'
+import { useWorkbenchNav } from '../hooks/useWorkbenchNav'
+import { GuidelinesAckModal, useProjectGuidelines } from '../components/annotation/GuidelinesPanel'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { AudioSegment } from '../services/modalityAnnotation'
 
@@ -15,8 +18,12 @@ export default function AudioAnnotation() {
   const { taskId = '3002' } = useParams<{ taskId: string }>()
   const [searchParams] = useSearchParams()
   const projectIdParam = searchParams.get('projectId')
-  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, reload, lock, lockBlocked, peers, connected } =
     useModalityWorkspace(taskId, 'audio')
+  const auto = useAutoLabel(taskId, useBackend, reload)
+  const projectId = projectIdParam ?? ws?.project_id
+  const guide = useProjectGuidelines(projectId)
+  const nav = useWorkbenchNav(taskId, projectId)
   const audioRef = useRef<HTMLAudioElement>(null)
   const [currentMs, setCurrentMs] = useState(0)
   const [durationMs, setDurationMs] = useState(0)
@@ -72,6 +79,14 @@ export default function AudioAnnotation() {
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
+      onAutoLabel={auto.run}
+      autoLabeling={auto.busy}
+      onNext={nav.claimNext}
+      onSkip={nav.skip}
+      navBusy={nav.busy}
+      guidelinesMd={guide.state?.guidelines_md ?? ''}
+      rejectFeedback={ws?.last_reject_feedback}
+      rejectTargets={ws?.last_reject_targets}
       backHref={backHref}
       backLabel="← 返回"
       lock={lock}
@@ -259,6 +274,11 @@ export default function AudioAnnotation() {
           </ul>
         </aside>
       </div>
+      <GuidelinesAckModal
+        open={Boolean(guide.state?.needs_ack)}
+        markdown={guide.state?.guidelines_md || ''}
+        onAck={() => void guide.ack()}
+      />
     </ModalityShell>
   )
 }

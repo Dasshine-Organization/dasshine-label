@@ -71,6 +71,14 @@ export type ModalityPayload = {
   preferences?: PreferencePair[]
   emotion?: string | null
   mos?: number | null
+  _auto_label?: {
+    model?: string
+    adapter?: string
+    confidence?: number
+    recommended?: boolean
+    needs_review?: boolean
+    at?: string
+  }
 }
 
 export type ModalityWorkspace = {
@@ -90,6 +98,8 @@ export type ModalityWorkspace = {
   payload: ModalityPayload
   label_classes: { id: string; name: string; color: string }[]
   draft_updated_at?: string | null
+  last_reject_feedback?: string | null
+  last_reject_targets?: Array<{ object_id: string; label?: string; note?: string }>
 }
 
 export const DEMO_TEXT_CONTENT =

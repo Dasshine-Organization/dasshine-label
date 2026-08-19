@@ -418,14 +418,17 @@ class QualityControlService:
         score: float = None,
         feedback: str = None,
         canonical_annotation_id: str = None,
+        targets: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         """
         审核任务。
 
         - approved → APPROVED（可写 canonical_annotation_id）
         - rejected → ANNOTATING（驳回回流标注，保留原 assignee）
+        - targets：驳回时的对象定位 [{object_id, label?, note?}]
         """
         from app.services.consensus import latest_annotations, set_canonical
+        from app.services.notifications import notify
 
         task = self.db.query(Task).filter(Task.id == task_id).first()
         if not task:
@@ -460,6 +463,22 @@ class QualityControlService:
             if chosen and not set_canonical(self.db, task, chosen):
                 return False
 
+        clean_targets: List[Dict[str, Any]] = []
+        if decision == "rejected" and isinstance(targets, list):
+            for t in targets:
+                if not isinstance(t, dict):
+                    continue
+                oid = t.get("object_id") or t.get("id")
+                if oid is None:
+                    continue
+                clean_targets.append(
+                    {
+                        "object_id": str(oid),
+                        "label": t.get("label"),
+                        "note": t.get("note") or t.get("message"),
+                    }
+                )
+
         # 创建审核记录
         review = Review(
             task_id=task_id,
@@ -467,7 +486,11 @@ class QualityControlService:
             decision=decision,
             score=score,
             feedback=feedback,
-            issues=self._analyze_issues(task) if decision == "rejected" else None,
+            issues=(
+                ([*(self._analyze_issues(task)), *[f"定位:{x['object_id']}" for x in clean_targets]]
+                 if decision == "rejected"
+                 else None)
+            ),
         )
         self.db.add(review)
 
@@ -476,11 +499,37 @@ class QualityControlService:
         else:
             # 驳回回流：回到标注中，便于标注员继续修改后再次提交
             task.status = TaskStatus.ANNOTATING
+            meta = dict(task.task_metadata or {})
             if feedback:
-                meta = dict(task.task_metadata or {})
                 meta["last_reject_feedback"] = feedback
-                meta["last_rejected_at"] = datetime.utcnow().isoformat()
-                task.task_metadata = meta
+            meta["last_rejected_at"] = datetime.utcnow().isoformat()
+            if clean_targets:
+                meta["last_reject_targets"] = clean_targets
+            else:
+                meta.pop("last_reject_targets", None)
+            task.task_metadata = meta
+
+            notify_uids = set()
+            if task.assignee_id:
+                notify_uids.add(task.assignee_id)
+            for uid in (meta.get("submitted_annotator_ids") or []):
+                try:
+                    notify_uids.add(int(uid))
+                except (TypeError, ValueError):
+                    pass
+            for uid in notify_uids:
+                notify(
+                    self.db,
+                    uid,
+                    type="task_rejected",
+                    title=f"任务 #{task_id} 已驳回",
+                    body=(feedback or "请根据审核意见修改后重新提交")[:500],
+                    payload={
+                        "task_id": task_id,
+                        "project_id": task.project_id,
+                        "targets": clean_targets,
+                    },
+                )
 
         # 更新标注员评分
         if score is not None and task.assignee_id:

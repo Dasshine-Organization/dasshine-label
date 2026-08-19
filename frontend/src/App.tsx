@@ -18,6 +18,7 @@ import MultimodalAnnotation from './pages/MultimodalAnnotation'
 import Projects from './pages/Projects'
 import ProjectTasks from './pages/ProjectTasks'
 import ReviewQueue from './pages/ReviewQueue'
+import Leaderboard from './pages/Leaderboard'
 import Profile from './pages/Profile'
 import UserManagement from './pages/UserManagement'
 import './index.css'
@@ -58,6 +59,7 @@ function App() {
           <Route path="projects" element={<Projects />} />
           <Route path="projects/:projectId/tasks" element={<ProjectTasks />} />
           <Route path="review" element={<ReviewQueue />} />
+          <Route path="leaderboard" element={<Leaderboard />} />
           <Route path="tasks" element={<TaskList />} />
           <Route path="profile" element={<Profile />} />
           <Route path="users" element={

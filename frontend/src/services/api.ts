@@ -209,6 +209,24 @@ export const projectApi = {
 
   updateQualityConfig: (projectId: number, config: Record<string, unknown>) =>
     api.put(`/projects/${projectId}/quality-config`, config),
+
+  getGuidelines: (projectId: number) =>
+    api.get<{
+      project_id: number
+      guidelines_md: string
+      guidelines_version: number
+      must_read: boolean
+      ack_version: number
+      needs_ack: boolean
+    }>(`/projects/${projectId}/guidelines`),
+
+  putGuidelines: (
+    projectId: number,
+    body: { guidelines_md: string; must_read?: boolean; bump?: boolean },
+  ) => api.put(`/projects/${projectId}/guidelines`, body),
+
+  ackGuidelines: (projectId: number) =>
+    api.post<{ success: boolean; needs_ack: boolean }>(`/projects/${projectId}/guidelines/ack`),
 }
 
 // 任务相关 API
@@ -232,6 +250,18 @@ export const taskApi = {
 
   // 领取任务
   claim: (taskId: number) => api.post(`/tasks/${taskId}/claim`),
+
+  claimNext: (projectId?: number) =>
+    api.post<{ success: boolean; task: Record<string, unknown> }>(
+      '/tasks/claim-next',
+      {},
+      { params: projectId ? { project_id: projectId } : undefined },
+    ),
+
+  skip: (taskId: number) =>
+    api.post<{ success: boolean; message: string; task: Record<string, unknown> }>(
+      `/tasks/${taskId}/skip`,
+    ),
 
   // 开始任务
   start: (taskId: number) => api.post(`/tasks/${taskId}/start`),
@@ -326,7 +356,52 @@ export const exportApi = {
     }>(`/export/${projectId}/stats`),
 }
 
-// LLM/OCR 自动标注未接入（API 501）。2D 请用 taskApi prelabel。
+// LLM / Whisper / OCR 自动标注（2D 图像请用 taskApi prelabel）
+export const autoLabelApi = {
+  process: (taskId: number) =>
+    api.post<{
+      success: boolean
+      task_id: number
+      confidence: number
+      model?: string
+      adapter?: string
+      high_confidence?: boolean
+      needs_review?: boolean
+      recommended?: boolean
+      message?: string
+      results?: Array<{
+        label: string
+        text: string
+        start?: number | null
+        end?: number | null
+        confidence: number
+      }>
+    }>(`/auto-label/process/${taskId}`, {}, { timeout: 120000 }),
+
+  batch: (projectId: number, batchSize = 50) =>
+    api.post<{
+      success: boolean
+      processed: number
+      high_confidence: number
+      low_confidence: number
+      failed: number
+      queued?: boolean
+      job_id?: string
+      sync_fallback?: boolean
+    }>('/auto-label/batch', { project_id: projectId, batch_size: batchSize }, { timeout: 120000 }),
+
+  status: (projectId: number) =>
+    api.get<{
+      project_id: number
+      auto_label_enabled: boolean
+      total_tasks: number
+      prelabeled_tasks: number
+      high_confidence: number
+      low_confidence: number
+      pending_tasks: number
+      adapters?: Record<string, unknown>
+    }>(`/auto-label/status/${projectId}`),
+}
 
 // 质量控制相关 API
 export const qualityApi = {
@@ -343,6 +418,7 @@ export const qualityApi = {
     score?: number
     feedback?: string
     canonical_annotation_id?: string
+    targets?: Array<{ object_id: string; label?: string; note?: string }>
   }) =>
     api.post<{ success: boolean; message: string; task_id: number; task_status: string }>(
       '/quality/review',
@@ -374,6 +450,42 @@ export const qualityApi = {
   // 获取一致性统计
   getAgreementStats: (projectId: number) =>
     api.get(`/quality/agreement/${projectId}`),
+
+  getLeaderboard: (limit = 20) =>
+    api.get<{
+      total: number
+      data: Array<{
+        rank: number
+        user_id: number
+        username: string
+        accuracy: number
+        completed_tasks: number
+        level: string
+        overall_score: number
+      }>
+    }>('/quality/leaderboard', { params: { limit } }),
+}
+
+export const notificationsApi = {
+  list: (params?: { unread_only?: boolean; limit?: number }) =>
+    api.get<{
+      unread: number
+      items: Array<{
+        id: number
+        type: string
+        title: string
+        body?: string
+        payload?: Record<string, unknown>
+        read: boolean
+        created_at?: string
+      }>
+    }>('/notifications', { params }),
+
+  unreadCount: () => api.get<{ unread: number }>('/notifications/unread-count'),
+
+  markRead: (id: number) => api.post(`/notifications/${id}/read`),
+
+  markAllRead: () => api.post<{ success: boolean; marked: number }>('/notifications/read-all'),
 }
 
 // 具身标注 API（详见 services/embodied.ts）

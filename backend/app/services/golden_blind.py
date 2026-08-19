@@ -79,4 +79,31 @@ def record_golden_match(
     scores[str(user_id)] = {"matched": bool(matched)}
     meta["golden_scores"] = scores
     task.task_metadata = meta
+
+    # P17：连续黄金题失败 streak（按项目记在 member.meta）
+    if task.project_id:
+        from app.services.guidelines import get_member_streak, set_member_streak
+        from app.services.notifications import notify
+
+        streak = get_member_streak(db, task.project_id, user_id)
+        if matched:
+            streak = 0
+        else:
+            streak += 1
+        set_member_streak(db, task.project_id, user_id, streak)
+        qc = (task.project.quality_config if task.project else None) or {}
+        try:
+            threshold = int(qc.get("golden_fail_threshold") or 5)
+        except (TypeError, ValueError):
+            threshold = 5
+        if not matched and streak >= threshold:
+            notify(
+                db,
+                user_id,
+                type="golden_paused",
+                title="领取已暂停",
+                body=f"连续 {streak} 道黄金题未通过，已暂停领取新任务，请联系管理员。",
+                payload={"project_id": task.project_id, "streak": streak},
+            )
+
     return bool(matched)

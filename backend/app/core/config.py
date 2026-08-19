@@ -109,10 +109,21 @@ class Settings(BaseSettings):
     S3_ADDRESSING_STYLE: str = "path"  # path | virtual
     S3_VERIFY_SSL: bool = True
     
-    # 自动标注
+    # 自动标注（HTTP 适配器，不在进程内训练）
     AUTO_LABEL_ENABLED: bool = True
     AUTO_LABEL_CONFIDENCE_THRESHOLD: float = 0.8
     AUTO_LABEL_MODEL_PATH: Optional[str] = None
+    AUTO_LABEL_LLM_BASE_URL: Optional[str] = None  # OpenAI 兼容，如 https://api.openai.com/v1
+    AUTO_LABEL_LLM_API_KEY: Optional[str] = None
+    AUTO_LABEL_LLM_MODEL: str = "gpt-4o-mini"
+    AUTO_LABEL_WHISPER_ENDPOINT: Optional[str] = None  # POST {audio_url} → text/segments
+    AUTO_LABEL_WHISPER_API_KEY: Optional[str] = None
+    AUTO_LABEL_OCR_ENDPOINT: Optional[str] = None  # POST {image_url} → texts/bbox
+    AUTO_LABEL_OCR_API_KEY: Optional[str] = None
+    AUTO_LABEL_HTTP_TIMEOUT: float = 60.0
+    AUTO_LABEL_ALLOW_DEMO: bool = False  # 无端点时的启发式；DEBUG 下默认可用
+    AUTO_LABEL_AUTO_SUBMIT: bool = False
+    AUTO_LABEL_BATCH_SYNC_MAX: int = 20
 
     # 2D 预标注模型
     PRELABEL_ENABLE_LOCAL: bool = True

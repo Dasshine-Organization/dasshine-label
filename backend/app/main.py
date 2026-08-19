@@ -23,6 +23,7 @@ from app.api.v1 import (
     embodied,
     export,
     modality_workspace,
+    notifications,
     orgs,
     project_labels,
     projects,
@@ -97,6 +98,7 @@ def create_application() -> FastAPI:
     app.include_router(export.router, prefix="/api/v1", tags=["导出"])
     app.include_router(auto_label.router, prefix="/api/v1", tags=["自动标注"])
     app.include_router(quality.router, prefix="/api/v1", tags=["质量控制"])
+    app.include_router(notifications.router, prefix="/api/v1", tags=["通知"])
     app.include_router(embodied.router, prefix="/api/v1")
     app.include_router(modality_workspace.router, prefix="/api/v1")
 

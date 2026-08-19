@@ -118,6 +118,9 @@ class ProjectMember(Base, TimestampMixin):
     can_assign: Mapped[bool] = mapped_column(default=False)
     can_review: Mapped[bool] = mapped_column(default=False)
     can_export: Mapped[bool] = mapped_column(default=False)
+
+    # P17：guideline_ack_version / golden_fail_streak 等
+    meta: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     # 关系
     project: Mapped["Project"] = relationship("Project", back_populates="members")

@@ -2,7 +2,10 @@ import { useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
+import { GuidelinesAckModal, useProjectGuidelines } from '../components/annotation/GuidelinesPanel'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { useAutoLabel } from '../hooks/useAutoLabel'
+import { useWorkbenchNav } from '../hooks/useWorkbenchNav'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { TextSpan } from '../services/modalityAnnotation'
 
@@ -14,8 +17,12 @@ export default function TextAnnotation() {
   const { taskId = '3001' } = useParams<{ taskId: string }>()
   const [searchParams] = useSearchParams()
   const projectIdParam = searchParams.get('projectId')
-  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, reload, lock, lockBlocked, peers, connected } =
     useModalityWorkspace(taskId, 'text', 'ner')
+  const auto = useAutoLabel(taskId, useBackend, reload)
+  const projectId = projectIdParam ?? ws?.project_id
+  const guide = useProjectGuidelines(projectId)
+  const nav = useWorkbenchNav(taskId, projectId)
 
   const [activeLabel, setActiveLabel] = useState('PER')
   const text = ws?.content.text ?? ''
@@ -94,6 +101,14 @@ export default function TextAnnotation() {
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
+      onAutoLabel={auto.run}
+      autoLabeling={auto.busy}
+      onNext={nav.claimNext}
+      onSkip={nav.skip}
+      navBusy={nav.busy}
+      guidelinesMd={guide.state?.guidelines_md ?? ''}
+      rejectFeedback={ws?.last_reject_feedback}
+      rejectTargets={ws?.last_reject_targets}
       backHref={backHref}
       backLabel="← 返回"
       lock={lock}
@@ -284,6 +299,11 @@ export default function TextAnnotation() {
           )}
         </aside>
       </div>
+      <GuidelinesAckModal
+        open={Boolean(guide.state?.needs_ack)}
+        markdown={guide.state?.guidelines_md || ''}
+        onAck={() => void guide.ack()}
+      />
     </ModalityShell>
   )
 }

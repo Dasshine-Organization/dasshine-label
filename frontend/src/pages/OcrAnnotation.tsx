@@ -5,6 +5,9 @@ import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import TaskLockBanner from '../components/TaskLockBanner'
 import CollabPresenceBar from '../components/CollabPresenceBar'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { useAutoLabel } from '../hooks/useAutoLabel'
+import { useWorkbenchNav } from '../hooks/useWorkbenchNav'
+import { GuidelinesAckModal, useProjectGuidelines } from '../components/annotation/GuidelinesPanel'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 
 type OcrSpan = {
@@ -73,8 +76,12 @@ export default function OcrAnnotation() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const projectIdParam = searchParams.get('projectId')
-  const { ws, payload, setPayload, loading, saving, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
+  const { ws, payload, setPayload, loading, saving, lastSavedAt, useBackend, persist, submit, reload, lock, lockBlocked, peers, connected } =
     useModalityWorkspace(taskId, 'ocr', 'ocr_text')
+  const auto = useAutoLabel(taskId, useBackend, reload)
+  const projectId = projectIdParam ?? ws?.project_id
+  const guide = useProjectGuidelines(projectId)
+  const nav = useWorkbenchNav(taskId, projectId)
 
   const imgRef = useRef<HTMLImageElement>(null)
   const [natural, setNatural] = useState({ w: 1, h: 1 })
@@ -211,6 +218,30 @@ export default function OcrAnnotation() {
           <ProjectExportMenu projectId={projectIdParam || String(ws.project_id)} projectName={ws.project_name} compact />
           <button
             type="button"
+            onClick={() => void nav.claimNext()}
+            disabled={nav.busy || !useBackend}
+            className="text-xs px-3 py-1.5 rounded-lg border border-white/15 text-white/55 disabled:opacity-40"
+          >
+            下一题
+          </button>
+          <button
+            type="button"
+            onClick={() => void nav.skip()}
+            disabled={nav.busy || !useBackend}
+            className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-white/40 disabled:opacity-40"
+          >
+            跳过
+          </button>
+          <button
+            type="button"
+            onClick={() => void auto.run()}
+            disabled={auto.busy || !useBackend || lockBlocked}
+            className="text-xs px-3 py-1.5 rounded-lg border border-[#00d4ff]/30 text-[#00d4ff] disabled:opacity-40"
+          >
+            {auto.busy ? 'AI 预标注中…' : 'AI 预标注'}
+          </button>
+          <button
+            type="button"
             onClick={() => payload && void persist(payload, false)}
             className="text-xs px-3 py-1.5 rounded-lg border border-[#1e1e2e] text-white/60"
           >
@@ -226,6 +257,17 @@ export default function OcrAnnotation() {
           </button>
         </div>
       </header>
+
+      {ws?.last_reject_feedback && (
+        <div className="mx-4 mt-3 text-[11px] text-[#f59e0b]/90 bg-[#f59e0b]/10 border border-[#f59e0b]/20 rounded-lg px-3 py-2">
+          驳回：{ws.last_reject_feedback}
+          {(ws.last_reject_targets?.length ?? 0) > 0 && (
+            <span className="text-white/40 ml-2">
+              定位 {ws.last_reject_targets!.map(t => t.label || t.object_id).join('、')}
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-12 gap-4 p-4">
         <section className="xl:col-span-8 min-h-[360px] rounded-xl border border-[#1e1e2e] bg-[#12121a] overflow-hidden relative flex items-center justify-center">
@@ -435,6 +477,11 @@ export default function OcrAnnotation() {
           )}
         </section>
       </div>
+      <GuidelinesAckModal
+        open={Boolean(guide.state?.needs_ack)}
+        markdown={guide.state?.guidelines_md || ''}
+        onAck={() => void guide.ack()}
+      />
     </div>
   )
 }

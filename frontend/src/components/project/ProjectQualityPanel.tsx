@@ -27,20 +27,39 @@ export default function ProjectQualityPanel({ projectId }: Props) {
   const [editId, setEditId] = useState<number | null>(null)
   const [answerJson, setAnswerJson] = useState('{\n  \n}')
   const [rotationOn, setRotationOn] = useState(false)
+  const [guidelinesMd, setGuidelinesMd] = useState('')
+  const [mustRead, setMustRead] = useState(true)
+  const [autoApprove, setAutoApprove] = useState(false)
+  const [minAgreement, setMinAgreement] = useState(0.8)
+  const [goldenFailThreshold, setGoldenFailThreshold] = useState(5)
+  const [savingGuide, setSavingGuide] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [g, r, qc] = await Promise.all([
+      const [g, r, qc, guide] = await Promise.all([
         projectApi.getGoldenTasks(projectId),
         qualityApi.getReport(projectId).catch(() => ({ data: null })),
         projectApi.getQualityConfig(projectId).catch(() => ({ data: null })),
+        projectApi.getGuidelines(projectId).catch(() => ({ data: null })),
       ])
       setItems(g.data?.items ?? [])
       setReport(r.data as typeof report)
       const cfg = (qc.data?.quality_config || {}) as Record<string, unknown>
       setRotationOn(Boolean(cfg.golden_rotation))
       if (typeof cfg.golden_ratio === 'number') setRatio(Number(cfg.golden_ratio))
+      setAutoApprove(Boolean(cfg.auto_approve_on_agreement))
+      if (typeof cfg.min_agreement === 'number') setMinAgreement(Number(cfg.min_agreement))
+      if (typeof cfg.golden_fail_threshold === 'number') {
+        setGoldenFailThreshold(Number(cfg.golden_fail_threshold))
+      }
+      if (guide.data) {
+        setGuidelinesMd(guide.data.guidelines_md || '')
+        setMustRead(Boolean(guide.data.must_read ?? true))
+      } else if (typeof cfg.guidelines_md === 'string') {
+        setGuidelinesMd(cfg.guidelines_md)
+        setMustRead(Boolean(cfg.guidelines_must_read ?? true))
+      }
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } }
       message.error(err.response?.data?.detail ?? '加载质控失败')
@@ -79,6 +98,37 @@ export default function ProjectQualityPanel({ projectId }: Props) {
     }
   }
 
+  async function saveDailyQc() {
+    try {
+      await projectApi.updateQualityConfig(projectId, {
+        auto_approve_on_agreement: autoApprove,
+        min_agreement: minAgreement,
+        golden_fail_threshold: goldenFailThreshold,
+      })
+      message.success('日常质控已保存')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail ?? '保存失败')
+    }
+  }
+
+  async function saveGuidelines() {
+    setSavingGuide(true)
+    try {
+      await projectApi.putGuidelines(projectId, {
+        guidelines_md: guidelinesMd,
+        must_read: mustRead,
+        bump: true,
+      })
+      message.success('标注规范已更新（成员需重新确认）')
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail ?? '保存规范失败')
+    } finally {
+      setSavingGuide(false)
+    }
+  }
+
   function openEdit(item: GoldenItem) {
     setEditId(item.id)
     const data = item.golden_answer?.data ?? item.golden_answer ?? {}
@@ -111,11 +161,83 @@ export default function ProjectQualityPanel({ projectId }: Props) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-40 w-[360px] bg-[#12121a] border border-[#1e1e2e] rounded-xl shadow-xl p-3 space-y-3">
+        <div className="absolute right-0 top-full mt-2 z-40 w-[420px] max-h-[80vh] overflow-y-auto bg-[#12121a] border border-[#1e1e2e] rounded-xl shadow-xl p-3 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-xs text-white/60">黄金题 / 质控</div>
+            <div className="text-xs text-white/60">标注规范 / 黄金题 / 质控</div>
             <button type="button" onClick={() => setOpen(false)} className="text-white/30 text-xs hover:text-white/60">
               关闭
+            </button>
+          </div>
+
+          <div className="space-y-2 border-b border-[#1e1e2e] pb-3">
+            <div className="text-[10px] text-white/40 uppercase tracking-wider">标注规范 (Markdown)</div>
+            <textarea
+              rows={5}
+              value={guidelinesMd}
+              onChange={e => setGuidelinesMd(e.target.value)}
+              placeholder="边界框紧贴目标；模糊目标不标…"
+              className="w-full bg-[#0a0a0f] border border-[#1e1e2e] rounded-lg px-2 py-1.5 text-[11px] text-white/70 resize-none"
+            />
+            <label className="flex items-center gap-2 text-[11px] text-white/50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={mustRead}
+                onChange={e => setMustRead(e.target.checked)}
+                className="rounded border-[#1e1e2e]"
+              />
+              标注员领取前必须确认
+            </label>
+            <button
+              type="button"
+              disabled={savingGuide}
+              onClick={() => void saveGuidelines()}
+              className="w-full py-1.5 rounded-lg text-xs border border-[#00d4ff]/30 text-[#00d4ff] hover:bg-[#00d4ff]/10 disabled:opacity-40"
+            >
+              {savingGuide ? '保存中…' : '保存规范并升版本'}
+            </button>
+          </div>
+
+          <div className="space-y-2 border-b border-[#1e1e2e] pb-3">
+            <div className="text-[10px] text-white/40 uppercase tracking-wider">日常质控</div>
+            <label className="flex items-center gap-2 text-[11px] text-white/50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoApprove}
+                onChange={e => setAutoApprove(e.target.checked)}
+                className="rounded border-[#1e1e2e]"
+              />
+              交叉一致率达标自动过审
+            </label>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-white/35 whitespace-nowrap">最低一致率</label>
+              <input
+                type="number"
+                min={0.5}
+                max={1}
+                step={0.05}
+                value={minAgreement}
+                onChange={e => setMinAgreement(Number(e.target.value))}
+                className="w-20 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1 text-xs text-white/70"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-white/35 whitespace-nowrap">黄金题连错暂停</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                step={1}
+                value={goldenFailThreshold}
+                onChange={e => setGoldenFailThreshold(Number(e.target.value))}
+                className="w-16 bg-[#0a0a0f] border border-[#1e1e2e] rounded px-2 py-1 text-xs text-white/70"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void saveDailyQc()}
+              className="w-full py-1.5 rounded-lg text-xs border border-[#10b981]/30 text-[#10b981] hover:bg-[#10b981]/10"
+            >
+              保存日常质控
             </button>
           </div>
 

@@ -51,6 +51,8 @@ class ReviewRequest(BaseModel):
     feedback: Optional[str] = None
     # 多人共标通过时选定导出真源（annotation UUID）
     canonical_annotation_id: Optional[str] = None
+    # 驳回时对象定位：[{object_id, label?, note?}]
+    targets: Optional[List[Dict[str, Any]]] = None
 
 
 class ReviewResponse(BaseModel):
@@ -503,6 +505,7 @@ def get_review_task_detail(
         "versions": versions,
         "work_time": preview_ann.work_time if preview_ann else task.work_time,
         "last_reject_feedback": (task.task_metadata or {}).get("last_reject_feedback"),
+        "last_reject_targets": (task.task_metadata or {}).get("last_reject_targets") or [],
     }
 
 
@@ -534,6 +537,7 @@ def review_task(
         score=request.score,
         feedback=request.feedback,
         canonical_annotation_id=request.canonical_annotation_id,
+        targets=request.targets,
     )
     if not success:
         versions = [a for a in (task.annotations or []) if getattr(a, "is_latest", True)]
@@ -640,7 +644,7 @@ def get_quality_leaderboard(
     service = get_quality_service(db)
     annotators = (
         db.query(User)
-        .filter(User.completed_tasks > 10)
+        .filter(User.completed_tasks >= 1)
         .order_by(User.accuracy_score.desc())
         .limit(limit)
         .all()

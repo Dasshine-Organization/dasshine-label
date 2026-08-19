@@ -1,5 +1,5 @@
 """
-任务提交门闩：交叉共标满 N 人后才进入 SUBMITTED。
+任务提交门闩：交叉共标满 N 人后才进入 SUBMITTED；可选一致率自动过审。
 """
 
 from __future__ import annotations
@@ -99,7 +99,6 @@ def apply_cross_submit_gate(
         if task.status in (TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.REJECTED):
             task.status = TaskStatus.ANNOTATING
         elif task.status == TaskStatus.SUBMITTED:
-            # Should not happen mid-cross; leave as-is if already submitted
             pass
         else:
             task.status = TaskStatus.ANNOTATING
@@ -114,6 +113,55 @@ def apply_cross_submit_gate(
     }
 
 
+def maybe_auto_approve_on_agreement(db: Session, task: Task) -> Dict[str, Any]:
+    """
+    quality_config.auto_approve_on_agreement=true 且交叉人数≥2、一致率≥min_agreement 时自动 APPROVED。
+    """
+    project = task.project
+    if not project:
+        return {"auto_approved": False}
+    qc = project.quality_config if isinstance(project.quality_config, dict) else {}
+    if not qc.get("auto_approve_on_agreement"):
+        return {"auto_approved": False}
+    need = required_annotator_count(task)
+    if need < 2:
+        return {"auto_approved": False, "reason": "cross_validate_count < 2"}
+
+    try:
+        threshold = float(qc.get("min_agreement") if qc.get("min_agreement") is not None else 0.8)
+    except (TypeError, ValueError):
+        threshold = 0.8
+
+    from app.services.consensus import latest_annotations, set_canonical
+    from app.services.quality_control import QualityControlService
+
+    result = QualityControlService(db).calculate_cross_validation(task.id)
+    if not result:
+        return {"auto_approved": False, "reason": "no_agreement"}
+    if result.agreement_rate < threshold:
+        return {
+            "auto_approved": False,
+            "agreement_rate": result.agreement_rate,
+            "threshold": threshold,
+        }
+
+    versions = latest_annotations(task)
+    if versions:
+        set_canonical(db, task, versions[0].id)
+    task.status = TaskStatus.APPROVED
+    meta = task_meta(task)
+    meta["auto_approved"] = True
+    meta["auto_approved_agreement"] = result.agreement_rate
+    meta["auto_approved_at"] = datetime.now(timezone.utc).isoformat()
+    task.task_metadata = meta
+    return {
+        "auto_approved": True,
+        "agreement_rate": result.agreement_rate,
+        "threshold": threshold,
+        "task_status": "approved",
+    }
+
+
 def after_annotation_submit(
     db: Session,
     task: Task,
@@ -122,11 +170,16 @@ def after_annotation_submit(
     *,
     work_time: int | None = None,
 ) -> Dict[str, Any]:
-    """提交门闩 + 黄金题静默评分。"""
+    """提交门闩 + 黄金题静默评分 + 可选一致率自动过审。"""
     from app.services.golden_blind import record_golden_match
 
     progress = apply_cross_submit_gate(db, task, user_id, work_time=work_time)
     matched = record_golden_match(db, task, user_id, annotation_data)
     if matched is not None:
         progress["golden_matched"] = matched
+    if progress.get("fully_submitted"):
+        auto = maybe_auto_approve_on_agreement(db, task)
+        progress.update(auto)
+        if auto.get("auto_approved"):
+            progress["task_status"] = "approved"
     return progress

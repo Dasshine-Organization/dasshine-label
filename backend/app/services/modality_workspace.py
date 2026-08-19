@@ -198,6 +198,8 @@ def get_workspace(
         "payload": payload,
         "label_classes": label_classes,
         "draft_updated_at": draft.updated_at.isoformat() if draft and draft.updated_at else None,
+        "last_reject_feedback": (task.task_metadata or {}).get("last_reject_feedback"),
+        "last_reject_targets": (task.task_metadata or {}).get("last_reject_targets") or [],
     }
 
 

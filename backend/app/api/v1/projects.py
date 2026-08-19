@@ -515,6 +515,85 @@ def put_quality_config(
     return {"project_id": project_id, "quality_config": project.quality_config}
 
 
+@router.get("/{project_id}/guidelines")
+def get_guidelines(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.guidelines import guidelines_payload
+    from app.services.project_acl import get_project_member
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    member = get_project_member(db, project.id, current_user.id)
+    if not (
+        member
+        or can_administrate_project(db, project, current_user)
+        or can_review_project(db, project, current_user)
+        or project.created_by_id == current_user.id
+        or current_user.is_admin
+    ):
+        has_task = (
+            db.query(Task)
+            .filter(Task.project_id == project_id, Task.assignee_id == current_user.id)
+            .first()
+        )
+        if not has_task:
+            raise HTTPException(status_code=403, detail="无权查看标注规范")
+    return guidelines_payload(project, current_user, db)
+
+
+@router.put("/{project_id}/guidelines")
+def put_guidelines(
+    project_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.guidelines import guidelines_payload, update_guidelines
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not can_administrate_project(db, project, current_user):
+        raise HTTPException(status_code=403, detail="无权编辑标注规范")
+    md = str(
+        body.get("guidelines_md")
+        if body.get("guidelines_md") is not None
+        else body.get("markdown") or ""
+    )
+    must = body.get("must_read")
+    bump = bool(body.get("bump", True))
+    update_guidelines(
+        project,
+        markdown=md,
+        must_read=must if must is not None else None,
+        bump=bump,
+    )
+    db.commit()
+    return guidelines_payload(project, current_user, db)
+
+
+@router.post("/{project_id}/guidelines/ack")
+def ack_guidelines_endpoint(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.guidelines import ack_guidelines
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    ok, payload = ack_guidelines(db, project, current_user)
+    if not ok:
+        raise HTTPException(status_code=400, detail=payload.get("error") or "确认失败")
+    db.commit()
+    return {"success": True, **payload}
+
+
 @router.get("/{project_id}/members")
 def list_members(
     project_id: int,

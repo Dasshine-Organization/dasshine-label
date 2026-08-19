@@ -1,217 +1,71 @@
-# Dasshine Label 自动标注服务
+# Dasshine Label 自动标注
 
-## 概述
+预标注走 **HTTP 适配器**，不在 API 进程内训练模型。2D 检测请用 `/tasks/{id}/prelabel/*`（YOLO / HF / HTTP）。
 
-自动标注服务是 Dasshine Label 的核心功能之一，利用 AI 模型对数据进行预标注，**减少 70% 人工工作量**。
+高置信（≥ 项目 `auto_label_threshold`，默认 0.8）写入草稿并标记 `recommended`；低置信同样写入草稿，标记 `needs_review`，由人工确认。默认 **不自动提交**（`AUTO_LABEL_AUTO_SUBMIT=false`）。
 
----
-
-## 支持的标注类型
-
-| 类型 | 说明 | 输入 | 输出 |
-|------|------|------|------|
-| **NER** | 命名实体识别 | 文本 | 实体列表（人名、地点、日期等） |
-| **Classification** | 文本分类 | 文本 | 分类标签 |
-| **Sentiment** | 情感分析 | 文本 | 正面/负面/中性 |
-| **Summarization** | 文本摘要 | 长文本 | 摘要内容 |
-| **OCR** | 文字识别 | 图片 | 识别出的文字 |
+生产未配置端点且未开 demo 时返回 **503**，不再 501。
 
 ---
 
-## 工作原理
+## 适配器
 
-```
-┌─────────────┐    ┌──────────────┐    ┌──────────────┐
-│   任务数据   │ → │   AI 模型    │ → │   预标注结果  │
-│  (文本/图片) │    │ (LLM/OCR)   │    │  + 置信度    │
-└─────────────┘    └──────────────┘    └──────────────┘
-                                              ↓
-┌─────────────────────────────────────────────────────┐
-│  置信度 ≥ 0.8    →    直接作为推荐标注              │
-│  置信度 < 0.8    →    标记为需人工确认              │
-└─────────────────────────────────────────────────────┘
-```
+| 类型 | 环境变量 | 约定 |
+|------|----------|------|
+| LLM（NER / 分类 / 情感 / 摘要 / 翻译 / QA / caption） | `AUTO_LABEL_LLM_BASE_URL` + 可选 `AUTO_LABEL_LLM_API_KEY` / `AUTO_LABEL_LLM_MODEL` | OpenAI 兼容 `POST {base}/chat/completions`，JSON 对象 |
+| ASR | `AUTO_LABEL_WHISPER_ENDPOINT` | `POST {audio_url}` → `{text, segments, confidence}`；`start`/`end` 为秒或 `start_ms`/`end_ms` |
+| OCR | `AUTO_LABEL_OCR_ENDPOINT` | `POST {image_url}` → `{texts:[{text,bbox,confidence}]}`，bbox 为像素 xywh；也接受 PaddleOCR `results` 四边形 |
+
+无端点时：`DEBUG=true` 或 `AUTO_LABEL_ALLOW_DEMO=true` 使用确定性启发式（CI / 本地）。
 
 ---
 
-## API 接口
-
-### 1. 启用自动标注
-
-```http
-POST /api/v1/auto-label/enable/{project_id}
-Content-Type: application/json
-
-{
-  "model": "gpt-4",
-  "threshold": 0.8
-}
-```
-
-### 2. 单任务自动标注
+## API
 
 ```http
 POST /api/v1/auto-label/process/{task_id}
-```
-
-**响应：**
-```json
-{
-  "success": true,
-  "task_id": 1001,
-  "confidence": 0.92,
-  "model": "gpt-4",
-  "results": [
-    {
-      "label": "人名",
-      "text": "张三",
-      "start": 12,
-      "end": 14,
-      "confidence": 0.95
-    }
-  ],
-  "high_confidence": true
-}
-```
-
-### 3. 批量自动标注
-
-```http
 POST /api/v1/auto-label/batch
-Content-Type: application/json
-
-{
-  "project_id": 1,
-  "batch_size": 100
-}
+GET  /api/v1/auto-label/status/{project_id}
+POST /api/v1/auto-label/enable/{project_id}
+POST /api/v1/auto-label/disable/{project_id}
 ```
 
-### 4. 查看标注状态
+- 单任务：有工作台权限的成员即可；写入 **当前用户** 草稿。
+- 批量：管理员；优先入 Celery，Redis 不可用时同步小批量兜底。
+- 图像 2D：400，请改用 `/tasks/{id}/prelabel/run`。
 
-```http
-GET /api/v1/auto-label/status/{project_id}
-```
-
-**响应：**
-```json
-{
-  "project_id": 1,
-  "auto_label_enabled": true,
-  "total_tasks": 5000,
-  "prelabeled_tasks": 3500,
-  "high_confidence": 2800,
-  "low_confidence": 700,
-  "high_confidence_rate": 80.0
-}
-```
-
----
-
-## 模型配置
-
-### 支持的 LLM
-
-| 模型 | 优点 | 适用场景 |
-|------|------|----------|
-| **GPT-4** | 准确率高，通用性强 | 通用标注任务 |
-| **Claude** | 上下文长，稳定 | 长文档处理 |
-| **文心一言** | 中文优化，国内部署 | 中文法律/医疗 |
-| **通义千问** | 成本低，API友好 | 大规模批量处理 |
-
-### OCR 服务
-
-| 服务 | 特点 |
-|------|------|
-| **PaddleOCR** | 开源，本地部署，免费 |
-| **腾讯云OCR** | 中文优化，准确率高 |
-| **百度OCR** | 表格识别强 |
-| **阿里云OCR** | 文档结构化 |
+单任务响应含 `confidence`、`adapter`、`recommended`、`needs_review`、`results[]`。
 
 ---
 
 ## 配置示例
 
-```python
-# .env 文件
+见 `backend/.env.example` 中 `AUTO_LABEL_*`。
 
-# OpenAI (用于通用文本标注)
-OPENAI_API_KEY=sk-xxxxxxxx
-OPENAI_MODEL=gpt-4
-
-# 文心一言 (用于中文标注)
-BAIDU_API_KEY=xxxxxxxx
-BAIDU_SECRET_KEY=xxxxxxxx
-
-# OCR服务 (可选)
-TENCENT_OCR_SECRET_ID=xxxxxxxx
-TENCENT_OCR_SECRET_KEY=xxxxxxxx
-
-# 置信度阈值
-AUTO_LABEL_CONFIDENCE_THRESHOLD=0.8
+```bash
+AUTO_LABEL_LLM_BASE_URL=https://api.openai.com/v1
+AUTO_LABEL_LLM_API_KEY=sk-...
+AUTO_LABEL_LLM_MODEL=gpt-4o-mini
+AUTO_LABEL_WHISPER_ENDPOINT=http://127.0.0.1:9001/v1/transcribe
+AUTO_LABEL_OCR_ENDPOINT=http://127.0.0.1:9002/v1/ocr
+AUTO_LABEL_ALLOW_DEMO=false
 ```
 
 ---
 
-## 异步任务
-
-自动标注使用 Celery 进行异步处理：
+## Celery
 
 ```bash
-# 启动 Worker
 celery -A app.celery_app worker --loglevel=info
-
-# 启动定时任务
-celery -A app.celery_app beat --loglevel=info
 ```
-
-### 任务类型
 
 | 任务 | 用途 |
 |------|------|
-| `auto_label_task` | 单任务自动标注 |
-| `batch_auto_label` | 批量自动标注 |
-| `auto_label_project` | 整个项目自动标注 |
+| `auto_label_task` | 单任务 |
+| `batch_auto_label_task` | 批量（跳过已有 `pre_label_confidence` 的任务） |
 
 ---
 
-## 生产环境集成
+## 前端
 
-### 接入真实 LLM
-
-修改 `app/services/auto_label.py`：
-
-```python
-class LLMClient:
-    def __init__(self, api_key: str, model: str = "gpt-4"):
-        self.client = OpenAI(api_key=api_key)
-        self.model = model
-    
-    async def predict(self, prompt: str) -> str:
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
-        return response.choices[0].message.content
-```
-
-### 接入 OCR
-
-```python
-class OCRClient:
-    async def recognize(self, image_url: str):
-        # 使用腾讯云/百度/阿里 OCR API
-        result = await tencent_ocr.recognize(image_url)
-        return result
-```
-
----
-
-## 性能指标
-
-| 指标 | 目标值 |
-|------|--------|
-| 单任务处理时间 | < 2秒 |
-| 批量处理速度 | 1000条/小时 |
-| 高置信度比例 | > 80% |
-| 缓存命中率 | > 60% |
+文本 / 语音 / OCR / 多模态 / 视频 caption 工作台「AI 预标注」；项目任务页（nlp/audio/ocr/multimodal/video）「AI 批量预标注」。

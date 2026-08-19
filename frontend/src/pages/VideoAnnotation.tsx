@@ -3,6 +3,9 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import ModalityShell from '../components/annotation/ModalityShell'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import { useModalityWorkspace } from '../hooks/useModalityWorkspace'
+import { useAutoLabel } from '../hooks/useAutoLabel'
+import { useWorkbenchNav } from '../hooks/useWorkbenchNav'
+import { GuidelinesAckModal, useProjectGuidelines } from '../components/annotation/GuidelinesPanel'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { VideoClip } from '../services/modalityAnnotation'
 import {
@@ -25,7 +28,7 @@ export default function VideoAnnotation() {
   const { taskId = '3003' } = useParams<{ taskId: string }>()
   const [searchParams] = useSearchParams()
   const projectIdParam = searchParams.get('projectId')
-  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, lock, lockBlocked, peers, connected } =
+  const { ws, payload, updatePayload, loading, saving, dirty, lastSavedAt, useBackend, persist, submit, reload, lock, lockBlocked, peers, connected } =
     useModalityWorkspace(taskId, 'video')
   const videoRef = useRef<HTMLVideoElement>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -43,6 +46,10 @@ export default function VideoAnnotation() {
   const annType = ws?.ann_type ?? 'video_action'
   const isTracking = annType === 'video_tracking'
   const isCaption = annType === 'video_caption'
+  const auto = useAutoLabel(taskId, useBackend && isCaption, reload)
+  const projectId = projectIdParam ?? ws?.project_id
+  const guide = useProjectGuidelines(projectId)
+  const nav = useWorkbenchNav(taskId, projectId)
   const backHref = getAnnotateBackHref({
     projectId: projectIdParam ?? ws?.project_id,
     category: ws?.category ?? 'video',
@@ -153,6 +160,14 @@ export default function VideoAnnotation() {
       lastSavedAt={lastSavedAt}
       onSave={() => persist(payload, false)}
       onSubmit={() => submit()}
+      onAutoLabel={isCaption ? auto.run : undefined}
+      autoLabeling={auto.busy}
+      onNext={nav.claimNext}
+      onSkip={nav.skip}
+      navBusy={nav.busy}
+      guidelinesMd={guide.state?.guidelines_md ?? ''}
+      rejectFeedback={ws?.last_reject_feedback}
+      rejectTargets={ws?.last_reject_targets}
       backHref={backHref}
       backLabel="← 返回"
       lock={lock}
@@ -381,6 +396,11 @@ export default function VideoAnnotation() {
           )}
         </aside>
       </div>
+      <GuidelinesAckModal
+        open={Boolean(guide.state?.needs_ack)}
+        markdown={guide.state?.guidelines_md || ''}
+        onAck={() => void guide.ack()}
+      />
     </ModalityShell>
   )
 }

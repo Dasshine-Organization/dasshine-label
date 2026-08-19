@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { message } from 'antd'
-import api, { projectApi } from '../services/api'
+import api, { autoLabelApi, projectApi } from '../services/api'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import ProjectMembersPanel from '../components/project/ProjectMembersPanel'
 import ProjectQualityPanel from '../components/project/ProjectQualityPanel'
@@ -59,6 +59,7 @@ export default function ProjectTasks() {
     pending?: number
     dispatch_count?: number
   } | null>(null)
+  const [autoBusy, setAutoBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (!pid || Number.isNaN(pid)) return
@@ -116,8 +117,32 @@ export default function ProjectTasks() {
     navigate(`${base}${sep}projectId=${pid}`)
   }
 
+  async function runBatchAutoLabel() {
+    setAutoBusy(true)
+    try {
+      const { data } = await autoLabelApi.batch(pid, 50)
+      if (data.queued) {
+        message.success('已排队批量预标注，稍后刷新查看进度')
+      } else {
+        message.success(`预标注完成 ${data.processed} 条（失败 ${data.failed}）`)
+      }
+      await load()
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } }
+      message.error(err.response?.data?.detail ?? '批量预标注失败')
+    } finally {
+      setAutoBusy(false)
+    }
+  }
+
   const submittedCount =
     stats?.submitted ?? items.filter(t => t.status === 'submitted' || t.status === 'reviewing').length
+  const canAutoLabel =
+    project?.category === 'nlp' ||
+    project?.category === 'audio' ||
+    project?.category === 'ocr' ||
+    (project?.category === 'multimodal' && project?.ann_type !== 'rlhf') ||
+    (project?.category === 'video' && project?.ann_type === 'video_caption')
 
   return (
     <div className="p-8 max-w-6xl">
@@ -155,6 +180,17 @@ export default function ProjectTasks() {
             审核队列{submittedCount ? ` (${submittedCount})` : ''}
           </Link>
           <ProjectExportMenu projectId={pid} projectName={project?.name} />
+          {canAutoLabel && (
+            <button
+              type="button"
+              onClick={() => void runBatchAutoLabel()}
+              disabled={autoBusy || loading}
+              className="px-3 py-1.5 rounded-lg text-xs border border-[#00d4ff]/30 text-[#00d4ff]
+                hover:bg-[#00d4ff]/10 transition-all disabled:opacity-40"
+            >
+              {autoBusy ? '预标注中…' : 'AI 批量预标注'}
+            </button>
+          )}
           <button
             type="button"
             onClick={load}

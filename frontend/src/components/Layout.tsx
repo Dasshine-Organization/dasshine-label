@@ -4,6 +4,7 @@ import useAuthStore from '../store/authStore'
 import { isAdminRole } from '../utils/permissions'
 import { CATEGORY_HUBS } from '../utils/categoryHubs'
 import OrgSwitcher from './OrgSwitcher'
+import NotificationBell from './NotificationBell'
 
 const NAV = [
   {
@@ -44,6 +45,15 @@ const NAV = [
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <path d="M4 4h12v12H4z" strokeLinejoin="round" />
         <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    to: '/leaderboard',
+    label: '排行榜',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+        <path d="M4 16V9h3v7H4zM8.5 16V5h3v11h-3zM13 16v-4h3v4h-3z" strokeLinejoin="round" />
       </svg>
     ),
   },
@@ -166,6 +176,7 @@ export default function Layout() {
                 <div className="text-[10px] text-white/30 capitalize">{user?.level ?? 'novice'}</div>
               </div>
             )}
+            <NotificationBell />
             {!collapsed && (
               <button
                 type="button"

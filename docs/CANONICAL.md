@@ -33,7 +33,7 @@
 
 - **审核**：`/review` → `GET /quality/queue` + `POST /quality/review`；驳回回流 `annotating`
 - **导出**：项目任务页「导出数据」→ 按类别三种主流格式（见 `docs/export_formats.md`）→ `GET /export/{id}?format=…&status=approved`
-- **预标注**：2D 工作台 YOLO / HF / HTTP（`/tasks/{id}/prelabel/*`）；`demo_template` 仅 DEBUG；LLM/OCR auto-label 返回 **501**
+- **预标注**：2D 工作台 YOLO / HF / HTTP（`/tasks/{id}/prelabel/*`）；`demo_template` 仅 DEBUG。NLP/ASR/OCR：`/auto-label/*` HTTP 适配器（未配置且非 demo → **503**，不再 501）
 - **分发可观测**：`GET /projects/{id}/dispatch-logs` + 项目任务页最近分发
 
 ## P4 平台化
@@ -129,3 +129,16 @@
 - 视频 MOT：帧上画框 + track_id + 关键帧插值；jsonl 导出 tracks
 - 图像整图分类、COCO-17 姿态模板；OCR 版面/表格；语音波形与情绪/MOS；多模态 RLHF 偏好对
 - 点云分割默认逐点刷；创建向导与工具对齐，**不下发** `lane_3d`
+
+## P16 自动标注适配器
+
+- 计划：`docs/p16_auto_label.md`
+- `/auto-label/process|batch` 不再 501；LLM / Whisper / OCR HTTP；无端点时 DEBUG/demo 启发式
+- 结果写入草稿 + `pre_label_confidence`；高置信 recommended，低置信人工确认；批量走 Celery
+
+## P17 多用户标注日常
+
+- 计划：`docs/p17_daily_workflow.md`
+- 项目 Markdown 规范 + 必读 ack；驳回 `targets` 定位；claim-next / skip；站内通知
+- `auto_approve_on_agreement`；黄金题连错暂停领取；`/leaderboard`
+

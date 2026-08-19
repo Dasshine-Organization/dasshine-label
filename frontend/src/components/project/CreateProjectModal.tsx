@@ -398,7 +398,7 @@ function StepDispatch({
         <div className="flex items-center justify-between mb-3">
           <div>
             <div className="text-xs font-medium text-white/70">AI 自动预标注</div>
-            <div className="text-[10px] text-white/30 mt-0.5">减少 70% 人工工作量</div>
+            <div className="text-[10px] text-white/30 mt-0.5">写入 AI 草稿后人工确认；需配置 LLM / Whisper / OCR 端点</div>
           </div>
           <button
             onClick={() => onChange({ auto_label_enabled: !form.auto_label_enabled })}

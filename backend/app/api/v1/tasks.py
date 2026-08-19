@@ -204,6 +204,119 @@ def get_available_tasks(
     ]
 
 
+@router.post("/tasks/claim-next")
+def claim_next_task(
+    project_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """领取下一题：从可领池取一条并 claim（跳过本人已 skip 的）。"""
+    from app.models.project import Project
+    from app.services.guidelines import ensure_guidelines_acked, get_member_streak
+    from app.services.org_scope import project_visible_in_active_org
+    from app.services.organization_service import OrganizationService
+    from app.services.project_service import _get_schema
+
+    query = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .join(Project, Project.id == Task.project_id)
+        .filter(Task.status == TaskStatus.PENDING, Task.assignee_id.is_(None))
+    )
+    if project_id:
+        query = query.filter(Task.project_id == project_id)
+    elif not current_user.is_admin:
+        org_svc = OrganizationService(db)
+        org_svc.ensure_personal_org(current_user)
+        if current_user.active_org_id:
+            query = query.filter(Project.organization_id == current_user.active_org_id)
+
+    candidates = query.order_by(Task.priority.desc(), Task.id.asc()).limit(40).all()
+    for task in candidates:
+        if not task.project:
+            continue
+        if not project_visible_in_active_org(db, task.project, current_user):
+            continue
+        ack_err = ensure_guidelines_acked(db, task.project, current_user)
+        if ack_err:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ack_err)
+        qc = task.project.quality_config if isinstance(task.project.quality_config, dict) else {}
+        try:
+            fail_th = int(qc.get("golden_fail_threshold") or 5)
+        except (TypeError, ValueError):
+            fail_th = 5
+        if get_member_streak(db, task.project_id, current_user.id) >= fail_th:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"连续黄金题失败已暂停领取（阈值 {fail_th}）",
+            )
+        meta = dict(task.task_metadata or {})
+        skipped = meta.get("skipped_by_user_ids") or []
+        if current_user.id in skipped or str(current_user.id) in [str(x) for x in skipped]:
+            continue
+
+        dispatch_service = get_dispatch_service(db)
+        current_count = dispatch_service._get_current_task_count(current_user.id)
+        max_capacity = dispatch_service.LEVEL_CAPACITY.get(
+            _annotator_level_key(current_user), 20
+        )
+        if current_count >= max_capacity:
+            raise_bad_request(f"您当前已有{current_count}个进行中的任务，达到上限")
+        assignment = dispatch_service._lock_and_assign(task, current_user)
+        if not assignment:
+            continue
+        task = (
+            db.query(Task)
+            .options(joinedload(Task.project), joinedload(Task.assignee))
+            .filter(Task.id == task.id)
+            .first()
+        )
+        schema = _get_schema(task.project) if task and task.project else {}
+        return {"success": True, "task": _task_list_item(task, schema)}
+
+    raise HTTPException(status_code=404, detail="暂无可领取任务")
+
+
+@router.post("/tasks/{task_id}/skip")
+def skip_task(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """跳过当前题：释放回领取池，并记录本用户已跳过。"""
+    from app.services.project_service import _get_schema
+
+    task = (
+        db.query(Task)
+        .options(joinedload(Task.project), joinedload(Task.assignee))
+        .filter(Task.id == task_id)
+        .first()
+    )
+    if not task:
+        raise_not_found("任务不存在")
+    if not is_task_assignee(task, current_user) and not current_user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权跳过此任务")
+
+    meta = dict(task.task_metadata or {})
+    skipped = list(meta.get("skipped_by_user_ids") or [])
+    if current_user.id not in skipped and str(current_user.id) not in [str(x) for x in skipped]:
+        skipped.append(current_user.id)
+    meta["skipped_by_user_ids"] = skipped
+    from datetime import datetime, timezone
+
+    meta["last_skipped_at"] = datetime.now(timezone.utc).isoformat()
+    task.task_metadata = meta
+    task.assignee_id = None
+    task.status = TaskStatus.PENDING
+    try:
+        task.priority = max(1, int(task.priority or 5) - 1)
+    except (TypeError, ValueError):
+        pass
+    db.commit()
+    schema = _get_schema(task.project) if task.project else {}
+    return {"success": True, "message": "已跳过，任务退回领取池", "task": _task_list_item(task, schema)}
+
+
 @router.get("/tasks/{task_id}")
 def get_task(
     task_id: int,
@@ -236,6 +349,7 @@ def get_task(
 
     if not can_see_golden(db, task, current_user):
         meta.pop("golden_scores", None)
+    # Annotators can see reject feedback/targets after reject
     item["task_metadata"] = meta
     item["pre_label_result"] = task.pre_label_result
     item = maybe_attach_golden_fields(db, task, current_user, item)
@@ -279,6 +393,25 @@ def claim_task(
 
     if task.status != TaskStatus.PENDING or task.assignee_id:
         raise_bad_request("任务已被领取或不可领取")
+
+    # P17：连续黄金题失败暂停领取
+    from app.services.guidelines import ensure_guidelines_acked, get_member_streak
+
+    if task.project:
+        ack_err = ensure_guidelines_acked(db, task.project, current_user)
+        if ack_err:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ack_err)
+        qc = task.project.quality_config if isinstance(task.project.quality_config, dict) else {}
+        try:
+            fail_th = int(qc.get("golden_fail_threshold") or 5)
+        except (TypeError, ValueError):
+            fail_th = 5
+        streak = get_member_streak(db, task.project_id, current_user.id)
+        if streak >= fail_th:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"连续 {streak} 道黄金题未通过，已暂停领取（阈值 {fail_th}），请联系管理员",
+            )
 
     dispatch_service = get_dispatch_service(db)
     current_count = dispatch_service._get_current_task_count(current_user.id)
