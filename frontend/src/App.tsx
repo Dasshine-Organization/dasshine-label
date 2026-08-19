@@ -20,6 +20,7 @@ import ProjectTasks from './pages/ProjectTasks'
 import ReviewQueue from './pages/ReviewQueue'
 import Leaderboard from './pages/Leaderboard'
 import Profile from './pages/Profile'
+import AcceptInvite from './pages/AcceptInvite'
 import UserManagement from './pages/UserManagement'
 import './index.css'
 
@@ -48,6 +49,7 @@ function App() {
             <Register />
           </GuestGuard>
         } />
+        <Route path="/invite/:token" element={<AcceptInvite />} />
 
         {/* 受保护路由 */}
         <Route path="/" element={

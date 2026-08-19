@@ -45,6 +45,11 @@ api.interceptors.response.use(
 
 // 认证相关 API
 export const authApi = {
+  publicConfig: () =>
+    api.get<{ register_enabled: boolean; oidc_enabled: boolean; frontend_url: string }>(
+      '/auth/public-config',
+    ),
+
   // 注册
   register: (data: {
     username: string
@@ -72,6 +77,8 @@ export const authApi = {
   // 修改当前用户密码
   changePassword: (data: { current_password: string; new_password: string }) =>
     api.post('/auth/change-password', data),
+
+  oidcLoginUrl: () => `${api.defaults.baseURL}/auth/oidc/login`,
 }
 
 // 组织（多租户）
@@ -96,6 +103,28 @@ export const orgApi = {
   checkout: (orgId: number, packId: string) =>
     api.post<{ session_id: string; url: string }>(`/orgs/${orgId}/billing/checkout`, {
       pack_id: packId,
+    }),
+  createInvite: (orgId: number, data: { email: string; role?: string }) =>
+    api.post<{ id: number; accept_url?: string; token?: string }>(`/orgs/${orgId}/invites`, data),
+  listInvites: (orgId: number) => api.get<{ items: Array<Record<string, unknown>> }>(`/orgs/${orgId}/invites`),
+  acceptInvite: (token: string) =>
+    api.post<{ ok: boolean; message: string; organization_id?: number }>('/orgs/invites/accept', {
+      token,
+    }),
+  listApiKeys: (orgId: number) =>
+    api.get<{ items: Array<Record<string, unknown>> }>(`/orgs/${orgId}/api-keys`),
+  createApiKey: (orgId: number, data: { name?: string }) =>
+    api.post<Record<string, unknown>>(`/orgs/${orgId}/api-keys`, data),
+  revokeApiKey: (orgId: number, keyId: number) => api.delete(`/orgs/${orgId}/api-keys/${keyId}`),
+  listWebhooks: (orgId: number) =>
+    api.get<{ items: Array<Record<string, unknown>> }>(`/orgs/${orgId}/webhooks`),
+  createWebhook: (orgId: number, data: { url: string; events?: string[]; secret?: string }) =>
+    api.post<Record<string, unknown>>(`/orgs/${orgId}/webhooks`, data),
+  deleteWebhook: (orgId: number, webhookId: number) =>
+    api.delete(`/orgs/${orgId}/webhooks/${webhookId}`),
+  listAudit: (orgId: number, limit = 100) =>
+    api.get<{ total: number; items: Array<Record<string, unknown>> }>(`/orgs/${orgId}/audit`, {
+      params: { limit },
     }),
 }
 

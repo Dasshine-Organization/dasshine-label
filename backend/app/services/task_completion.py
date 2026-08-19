@@ -182,4 +182,10 @@ def after_annotation_submit(
         progress.update(auto)
         if auto.get("auto_approved"):
             progress["task_status"] = "approved"
+        try:
+            from app.services.webhooks import emit_for_task
+
+            emit_for_task(db, task, "task.submitted")
+        except Exception:
+            pass
     return progress

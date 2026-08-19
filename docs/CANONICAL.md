@@ -142,3 +142,9 @@
 - 项目 Markdown 规范 + 必读 ack；驳回 `targets` 定位；claim-next / skip；站内通知
 - `auto_approve_on_agreement`；黄金题连错暂停领取；`/leaderboard`
 
+## P18 企业接入
+
+- 计划：`docs/p18_enterprise.md`
+- `AUTH_REGISTER_ENABLED`；OIDC 登录；组织邮件邀请；`ds_` API Key
+- 出站 Webhook（submitted / review / export）+ HMAC；只读审计；中英界面包
+

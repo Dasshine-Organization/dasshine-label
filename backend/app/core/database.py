@@ -55,6 +55,7 @@ def init_db() -> None:
         task_collab,
         storage_mount,
         notification,
+        enterprise,
     )
 
     Base.metadata.create_all(bind=engine)

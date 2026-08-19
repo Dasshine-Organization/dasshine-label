@@ -5,11 +5,14 @@ import { isAdminRole } from '../utils/permissions'
 import { CATEGORY_HUBS } from '../utils/categoryHubs'
 import OrgSwitcher from './OrgSwitcher'
 import NotificationBell from './NotificationBell'
+import { useLocale } from '../i18n/LocaleProvider'
+import type { MessageKey } from '../i18n/messages'
+import type { ReactNode } from 'react'
 
-const NAV = [
+const NAV: Array<{ to: string; labelKey: MessageKey; icon: ReactNode }> = [
   {
     to: '/',
-    label: '工作台',
+    labelKey: 'nav.dashboard',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <rect x="2" y="2" width="7" height="7" rx="1.5" />
@@ -21,7 +24,7 @@ const NAV = [
   },
   {
     to: '/projects',
-    label: '项目',
+    labelKey: 'nav.projects',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <path d="M3 6a2 2 0 012-2h3l2 2h5a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V6z" />
@@ -30,7 +33,7 @@ const NAV = [
   },
   {
     to: '/tasks',
-    label: '任务',
+    labelKey: 'nav.tasks',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <path d="M9 5H7a2 2 0 00-2 2v8a2 2 0 002 2h6a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h0a2 2 0 002-2M9 5a2 2 0 012-2h0a2 2 0 012 2" strokeLinecap="round" />
@@ -40,7 +43,7 @@ const NAV = [
   },
   {
     to: '/review',
-    label: '审核',
+    labelKey: 'nav.review',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <path d="M4 4h12v12H4z" strokeLinejoin="round" />
@@ -50,7 +53,7 @@ const NAV = [
   },
   {
     to: '/leaderboard',
-    label: '排行榜',
+    labelKey: 'nav.leaderboard',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <path d="M4 16V9h3v7H4zM8.5 16V5h3v11h-3zM13 16v-4h3v4h-3z" strokeLinejoin="round" />
@@ -59,7 +62,7 @@ const NAV = [
   },
   {
     to: '/profile',
-    label: '账户',
+    labelKey: 'nav.profile',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
         <circle cx="10" cy="7" r="3" />
@@ -82,6 +85,7 @@ const ADMIN_NAV = {
 export default function Layout() {
   const { user, logout } = useAuthStore()
   const navigate = useNavigate()
+  const { t, locale, setLocale } = useLocale()
   const [collapsed, setCollapsed] = useState(false)
   const showAdmin = user?.is_admin || isAdminRole(user?.role)
   const navItems = showAdmin ? [...NAV, ADMIN_NAV] : NAV
@@ -131,9 +135,30 @@ export default function Layout() {
               }
             >
               <span className="flex-shrink-0">{item.icon}</span>
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && (
+                <span>{'labelKey' in item ? t(item.labelKey) : item.label}</span>
+              )}
             </NavLink>
           ))}
+
+          {!collapsed && (
+            <div className="px-2.5 pt-1 flex gap-2 text-[10px]">
+              <button
+                type="button"
+                onClick={() => setLocale('zh')}
+                className={locale === 'zh' ? 'text-[#00d4ff]' : 'text-white/25'}
+              >
+                中文
+              </button>
+              <button
+                type="button"
+                onClick={() => setLocale('en')}
+                className={locale === 'en' ? 'text-[#00d4ff]' : 'text-white/25'}
+              >
+                EN
+              </button>
+            </div>
+          )}
 
           {!collapsed && (
             <div className="pt-3 mt-2 border-t border-[#1e1e2e]/80">

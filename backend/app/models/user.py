@@ -75,6 +75,10 @@ class User(Base, TimestampMixin):
     # 最后登录
     last_login: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
+    # P18 OIDC
+    oidc_sub: Mapped[Optional[str]] = mapped_column(String(255), index=True)
+    oidc_issuer: Mapped[Optional[str]] = mapped_column(String(500))
+
     # 当前工作组织（多租户）
     active_org_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True

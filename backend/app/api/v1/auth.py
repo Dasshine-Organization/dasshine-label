@@ -2,8 +2,10 @@
 认证路由
 """
 
-from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr, Field, model_validator
@@ -13,6 +15,7 @@ from app.core.password_policy import validate_password
 from app.core.security import create_access_token, verify_password, get_password_hash
 from app.api.deps import get_db, get_current_user
 from app.models.user import User, UserRole, UserStatus
+from app.services import audit
 
 router = APIRouter()
 
@@ -65,6 +68,12 @@ class UserResponse(BaseModel):
 @router.post("/auth/register", response_model=UserResponse)
 def register(user_data: UserRegister, db: Session = Depends(get_db)):
     """用户注册（默认标注员角色）"""
+    if not settings.AUTH_REGISTER_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="公开注册已关闭，请使用组织邀请或 SSO",
+        )
+
     pwd_err = validate_password(user_data.password)
     if pwd_err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=pwd_err)
@@ -105,8 +114,21 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
     return user
 
 
+@router.get("/auth/public-config")
+def public_auth_config():
+    """前端用：注册开关 / OIDC 是否可用"""
+    from app.services.oidc import oidc_configured
+
+    return {
+        "register_enabled": bool(settings.AUTH_REGISTER_ENABLED),
+        "oidc_enabled": oidc_configured(),
+        "frontend_url": settings.FRONTEND_URL,
+    }
+
+
 @router.post("/auth/login", response_model=TokenResponse)
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
@@ -132,6 +154,16 @@ def login(
     from app.services.organization_service import OrganizationService
 
     OrganizationService(db).ensure_personal_org(user)
+    user.last_login = datetime.now(timezone.utc)
+    audit.record(
+        db,
+        action="auth.login",
+        actor_user_id=user.id,
+        organization_id=user.active_org_id,
+        detail={"method": "password"},
+        ip=request.client.host if request.client else None,
+    )
+    db.commit()
     db.refresh(user)
     
     # 创建令牌
@@ -155,6 +187,65 @@ def login(
             "active_org_id": user.active_org_id,
         }
     }
+
+
+@router.get("/auth/oidc/login")
+def oidc_login():
+    """跳转 IdP 授权页"""
+    from app.services.oidc import build_authorize_url, oidc_configured
+
+    if not oidc_configured():
+        raise HTTPException(status_code=503, detail="OIDC 未配置")
+    try:
+        url, _state = build_authorize_url()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"OIDC 不可用: {e}") from e
+    return RedirectResponse(url)
+
+
+@router.get("/auth/oidc/callback")
+def oidc_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """OIDC 回调：换用户并跳转前端带 token"""
+    from app.services.oidc import exchange_code, oidc_configured, upsert_oidc_user
+    from app.services.organization_service import OrganizationService
+
+    if error:
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL.rstrip('/')}/login?oidc_error={error}"
+        )
+    if not oidc_configured() or not code:
+        raise HTTPException(status_code=400, detail="OIDC 回调无效")
+    try:
+        claims = exchange_code(code)
+        user = upsert_oidc_user(db, claims)
+        OrganizationService(db).ensure_personal_org(user)
+        user.last_login = datetime.now(timezone.utc)
+        audit.record(
+            db,
+            action="auth.login",
+            actor_user_id=user.id,
+            organization_id=user.active_org_id,
+            detail={"method": "oidc"},
+            ip=request.client.host if request.client else None,
+        )
+        db.commit()
+        token = create_access_token(
+            data={"sub": str(user.id), "username": user.username, "role": str(user.role)},
+            expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        )
+    except Exception as e:
+        return RedirectResponse(
+            f"{settings.FRONTEND_URL.rstrip('/')}/login?oidc_error=exchange_failed"
+        )
+    return RedirectResponse(
+        f"{settings.FRONTEND_URL.rstrip('/')}/login?oidc_token={token}"
+    )
 
 
 @router.get("/auth/me", response_model=UserResponse)

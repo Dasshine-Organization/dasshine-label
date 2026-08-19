@@ -168,6 +168,25 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
+    # P18 企业接入
+    AUTH_REGISTER_ENABLED: bool = True
+    OIDC_ENABLED: bool = False
+    OIDC_ISSUER: Optional[str] = None  # e.g. https://accounts.google.com
+    OIDC_CLIENT_ID: Optional[str] = None
+    OIDC_CLIENT_SECRET: Optional[str] = None
+    OIDC_REDIRECT_URI: str = "http://localhost:8000/api/v1/auth/oidc/callback"
+    OIDC_SCOPES: str = "openid profile email"
+    FRONTEND_URL: str = "http://localhost:5173"
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM: str = "noreply@dasshine.local"
+    SMTP_USE_TLS: bool = True
+    WEBHOOK_TIMEOUT_SEC: float = 10.0
+    WEBHOOK_MAX_ATTEMPTS: int = 3
+    ORG_INVITE_EXPIRE_DAYS: int = 7
+
 
 # 全局配置实例
 settings = Settings()

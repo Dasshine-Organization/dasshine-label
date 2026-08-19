@@ -76,6 +76,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # 认证：更严
         if path.startswith("/api/v1/auth/login") or path.startswith("/api/v1/auth/register"):
             return int(settings.RATE_LIMIT_AUTH_PER_MINUTE), "auth"
+        if path.startswith("/api/v1/auth/oidc"):
+            return int(settings.RATE_LIMIT_AUTH_PER_MINUTE), "auth"
         # 领取任务
         if method == "POST" and path.rstrip("/").endswith("/claim"):
             return int(settings.RATE_LIMIT_CLAIM_PER_MINUTE), "claim"

@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { authApi } from '../services/api'
 import useAuthStore from '../store/authStore'
 import { validatePassword } from '../utils/permissions'
+import { useLocale } from '../i18n/LocaleProvider'
 
 export default function Register() {
   const navigate = useNavigate()
   const { setAuth } = useAuthStore()
+  const { t } = useLocale()
   const [form, setForm] = useState({
     username: '',
     email: '',
@@ -17,10 +19,26 @@ export default function Register() {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [allowed, setAllowed] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    authApi
+      .publicConfig()
+      .then(res => {
+        const on = Boolean(res.data.register_enabled)
+        setAllowed(on)
+        if (!on) setError(t('register.disabled'))
+      })
+      .catch(() => setAllowed(true))
+  }, [t])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
+    if (allowed === false) {
+      setError(t('register.disabled'))
+      return
+    }
 
     if (form.username.length < 3) {
       setError('用户名至少 3 个字符')

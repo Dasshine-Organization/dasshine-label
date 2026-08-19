@@ -4,7 +4,9 @@ import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
+import enUS from 'antd/locale/en_US'
 import App from './App'
+import { LocaleProvider, useLocale } from './i18n/LocaleProvider'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -16,7 +18,6 @@ const queryClient = new QueryClient({
   },
 })
 
-// Ant Design 主题配置 - 科技感深色主题
 const theme = {
   token: {
     colorPrimary: '#00d4ff',
@@ -35,16 +36,27 @@ const theme = {
   },
 }
 
+function AntdLocaleBridge({ children }: { children: React.ReactNode }) {
+  const { locale } = useLocale()
+  return (
+    <ConfigProvider locale={locale === 'en' ? enUS : zhCN} theme={theme}>
+      {children}
+    </ConfigProvider>
+  )
+}
+
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element #root not found')
 ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ConfigProvider locale={zhCN} theme={theme}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </ConfigProvider>
+      <LocaleProvider>
+        <AntdLocaleBridge>
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
+        </AntdLocaleBridge>
+      </LocaleProvider>
     </QueryClientProvider>
   </React.StrictMode>,
 )

@@ -535,6 +535,18 @@ class QualityControlService:
         if score is not None and task.assignee_id:
             self._update_annotator_score(task.assignee_id, score)
 
+        try:
+            from app.services.webhooks import emit_for_task
+
+            emit_for_task(
+                self.db,
+                task,
+                "review.decided",
+                {"decision": decision, "reviewer_id": reviewer_id},
+            )
+        except Exception:
+            logger.exception("webhook emit review.decided failed")
+
         self.db.commit()
 
         logger.info(f"任务 {task_id} 审核完成: {decision}")

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { message } from 'antd'
+import OrgEnterprisePanel from './OrgEnterprisePanel'
 import { billingApi, orgApi } from '../services/api'
 import useAuthStore from '../store/authStore'
 
@@ -256,6 +257,15 @@ export default function OrgSwitcher({ collapsed }: { collapsed: boolean }) {
         >
           {connectReady ? '收款账户' : '连接收款'}
         </button>
+      )}
+      {activeId != null && (
+        <div className="mt-2 pt-2 border-t border-[#1e1e2e]/80">
+          <OrgEnterprisePanel
+            orgId={activeId}
+            orgName={orgs.find(o => o.id === activeId)?.name}
+            collapsed={collapsed}
+          />
+        </div>
       )}
     </div>
   )

@@ -79,6 +79,31 @@ def export_project_data(self, project_id: int, format: str, user_id: int, status
             storage.backend_name,
             download_url,
         )
+        try:
+            from app.services import audit
+            from app.services.webhooks import emit
+
+            org_id = getattr(project, "organization_id", None)
+            payload = {
+                "project_id": project_id,
+                "format": fmt,
+                "download_url": download_url,
+                "user_id": user_id,
+                "bytes": len(artifact.content),
+            }
+            emit(db, org_id, "export.done", payload)
+            audit.record(
+                db,
+                action="export.done",
+                actor_user_id=user_id,
+                organization_id=org_id,
+                resource_type="project",
+                resource_id=project_id,
+                detail={"format": fmt, "bytes": len(artifact.content)},
+            )
+            db.commit()
+        except Exception:
+            logger.exception("export webhook/audit failed")
         return {
             "project_id": project_id,
             "format": fmt,
