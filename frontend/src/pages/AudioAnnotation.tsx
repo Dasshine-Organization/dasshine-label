@@ -107,6 +107,7 @@ export default function AudioAnnotation() {
             ref={audioRef}
             src={url}
             controls
+            preload="metadata"
             className="w-full"
             onTimeUpdate={() => setCurrentMs((audioRef.current?.currentTime ?? 0) * 1000)}
             onLoadedMetadata={() => setDurationMs((audioRef.current?.duration ?? 0) * 1000)}

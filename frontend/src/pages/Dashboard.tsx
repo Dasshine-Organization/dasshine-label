@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useAuthStore from '../store/authStore'
-import { isDemoEntriesEnabled } from '../utils/demoMode'
+import { isDemoEntriesEnabled, subscribeDemoEntries } from '../utils/demoMode'
 import { CATEGORY_HUBS } from '../utils/categoryHubs'
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -69,6 +70,8 @@ function LinkGrid({ links }: { links: QuickLink[] }) {
 export default function Dashboard() {
   const { user } = useAuthStore()
   const color = LEVEL_COLORS[user?.level ?? 'novice']
+  const [, setDemoTick] = useState(0)
+  useEffect(() => subscribeDemoEntries(() => setDemoTick(t => t + 1)), [])
   const showDemos = isDemoEntriesEnabled()
 
   const stats = [

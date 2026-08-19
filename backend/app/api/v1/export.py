@@ -16,6 +16,7 @@ from app.models.project import Project
 from app.models.task import Task, TaskStatus
 from app.models.user import User
 from app.services.exporters import build_export, default_format_for, list_formats
+from app.services.file_storage import FileStorageService
 from app.services.project_acl import can_administrate_project, can_review_project
 from app.services.project_service import _get_schema, _resolve_project_category
 
@@ -82,10 +83,41 @@ def export_project(
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in project.name)[:40]
     filename = f"{safe_name}_{timestamp}{artifact.filename_suffix}"
 
+    snap_version: Optional[int] = None
+    try:
+        storage = FileStorageService()
+        rel_or_key, download_url = storage.save_bytes(
+            project_id,
+            filename,
+            artifact.content,
+            subdir="exports",
+        )
+        from app.services.export_snapshots import create_snapshot
+
+        snap = create_snapshot(
+            db,
+            project_id=project_id,
+            tasks=tasks,
+            fmt=fmt,
+            status_filter=status or "approved",
+            storage_path=rel_or_key,
+            download_url=download_url,
+            size_bytes=len(artifact.content),
+            created_by_id=current_user.id,
+        )
+        snap_version = snap.version
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if snap_version is not None:
+        headers["X-Export-Snapshot-Version"] = str(snap_version)
+
     return StreamingResponse(
         iter([artifact.content]),
         media_type=artifact.media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=headers,
     )
 
 
@@ -248,3 +280,46 @@ def get_export_job_status(
     else:
         payload["status"] = "running" if state == "STARTED" else "queued"
     return payload
+
+
+@router.get("/export/{project_id}/snapshots")
+def list_export_snapshots(
+    project_id: int,
+    limit: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not (
+        can_review_project(db, project, current_user)
+        or can_administrate_project(db, project, current_user)
+    ):
+        raise HTTPException(status_code=403, detail="无权查看导出快照")
+    from app.services.export_snapshots import list_snapshots, snapshot_to_dict
+
+    items = list_snapshots(db, project_id, limit=limit)
+    return {"total": len(items), "items": [snapshot_to_dict(s) for s in items]}
+
+
+@router.get("/export/snapshots/{snapshot_id}")
+def get_export_snapshot(
+    snapshot_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from app.services.export_snapshots import get_snapshot, snapshot_to_dict
+
+    snap = get_snapshot(db, snapshot_id)
+    if not snap:
+        raise HTTPException(status_code=404, detail="快照不存在")
+    project = db.query(Project).filter(Project.id == snap.project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not (
+        can_review_project(db, project, current_user)
+        or can_administrate_project(db, project, current_user)
+    ):
+        raise HTTPException(status_code=403, detail="无权查看")
+    return snapshot_to_dict(snap)

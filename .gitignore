@@ -66,6 +66,11 @@ Vite
 .vite/
 .timestamp-
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
 Editor directories and files
 .idea/
 .vscode/

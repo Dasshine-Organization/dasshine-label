@@ -427,6 +427,101 @@ def get_project_stats(
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
+@router.get("/{project_id}/analytics")
+def get_project_analytics(
+    project_id: int,
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.project_analytics import get_project_analytics as analytics
+    from app.services.project_acl import can_administrate_project, get_project_member
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    is_member = get_project_member(db, project_id, current_user.id) is not None
+    if not (
+        current_user.is_admin
+        or can_administrate_project(db, project, current_user)
+        or can_review_project(db, project, current_user)
+        or is_member
+    ):
+        raise HTTPException(status_code=403, detail="无权查看分析")
+    return analytics(db, project, days=days)
+
+
+class ActiveLearningRelabel(BaseModel):
+    task_ids: List[int] = Field(default_factory=list)
+
+
+@router.get("/{project_id}/active-learning")
+def get_active_learning_pool(
+    project_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.active_learning import list_pool, pool_count, task_pool_item, _threshold
+    from app.services.project_acl import can_administrate_project, get_project_member
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not (
+        current_user.is_admin
+        or can_administrate_project(db, project, current_user)
+        or get_project_member(db, project_id, current_user.id)
+    ):
+        raise HTTPException(status_code=403, detail="无权查看主动学习池")
+    rows = list_pool(db, project_id, limit=limit)
+    return {
+        "project_id": project_id,
+        "threshold": _threshold(project),
+        "total": pool_count(db, project_id),
+        "items": [task_pool_item(t) for t in rows],
+    }
+
+
+@router.post("/{project_id}/active-learning/sync")
+def sync_active_learning_pool(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.active_learning import sync_pool
+    from app.services.project_acl import can_administrate_project
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not (current_user.is_admin or can_administrate_project(db, project, current_user)):
+        raise HTTPException(status_code=403, detail="仅项目管理员可同步主动学习池")
+    result = sync_pool(db, project)
+    db.commit()
+    return {"ok": True, **result}
+
+
+@router.post("/{project_id}/active-learning/relabel")
+def relabel_active_learning(
+    project_id: int,
+    body: ActiveLearningRelabel,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services.active_learning import promote_for_relabel
+    from app.services.project_acl import can_administrate_project
+
+    project = ProjectService(db).get(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if not (current_user.is_admin or can_administrate_project(db, project, current_user)):
+        raise HTTPException(status_code=403, detail="仅项目管理员可重标")
+    n = promote_for_relabel(db, project_id, body.task_ids)
+    db.commit()
+    return {"ok": True, "promoted": n}
+
+
 @router.get("/{project_id}/golden-tasks")
 def list_golden_tasks(
     project_id: int,

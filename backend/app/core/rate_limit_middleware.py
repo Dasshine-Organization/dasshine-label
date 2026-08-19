@@ -21,11 +21,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     SKIP_PREFIXES = (
         "/health",
         "/ready",
+        "/metrics",
         "/docs",
         "/redoc",
         "/openapi.json",
         "/uploads",
         "/api/v1/billing/stripe/webhook",
+        "/api/v1/media/",
     )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -79,7 +81,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/v1/auth/oidc"):
             return int(settings.RATE_LIMIT_AUTH_PER_MINUTE), "auth"
         # 领取任务
-        if method == "POST" and path.rstrip("/").endswith("/claim"):
+        if method == "POST" and (
+            path.rstrip("/").endswith("/claim") or path.rstrip("/").endswith("/claim-next")
+        ):
             return int(settings.RATE_LIMIT_CLAIM_PER_MINUTE), "claim"
         # 导入（含异步 job）
         if "/import/" in path and method == "POST":

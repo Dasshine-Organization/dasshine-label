@@ -40,6 +40,9 @@ export default function ProjectExportMenu({
   const [exporting, setExporting] = useState(false)
   const [formats, setFormats] = useState<ExportFormatInfo[]>([])
   const [defaultFormat, setDefaultFormat] = useState('coco')
+  const [snapshots, setSnapshots] = useState<
+    Array<{ id: number; version: number; format: string; download_url?: string; task_count: number }>
+  >([])
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -67,11 +70,17 @@ export default function ProjectExportMenu({
       } catch {
         /* keep empty — menu still shows fallback */
       }
+      try {
+        const { data: snaps } = await exportApi.listSnapshots(pid, 8)
+        if (!cancelled) setSnapshots(snaps.items ?? [])
+      } catch {
+        if (!cancelled) setSnapshots([])
+      }
     })()
     return () => {
       cancelled = true
     }
-  }, [pid])
+  }, [pid, open])
 
   useEffect(() => {
     if (!open) return
@@ -218,6 +227,28 @@ export default function ProjectExportMenu({
               </button>
             </div>
           ))}
+          {snapshots.length > 0 && (
+            <div className="border-t border-[#1e1e2e] px-3 py-2 space-y-1">
+              <div className="text-[10px] text-white/35 uppercase tracking-wider">历史快照</div>
+              {snapshots.map(s => (
+                <div key={s.id} className="flex items-center justify-between gap-2 text-[10px]">
+                  <span className="text-white/50">
+                    v{s.version} · {s.format} · {s.task_count} 条
+                  </span>
+                  {s.download_url && (
+                    <a
+                      href={s.download_url.startsWith('http') ? s.download_url : `${API_ORIGIN}${s.download_url}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#00d4ff] hover:underline shrink-0"
+                    >
+                      下载
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

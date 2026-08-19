@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
@@ -22,11 +23,26 @@ import Leaderboard from './pages/Leaderboard'
 import Profile from './pages/Profile'
 import AcceptInvite from './pages/AcceptInvite'
 import UserManagement from './pages/UserManagement'
+import { authApi } from './services/api'
+import { applyServerDemoEntries } from './utils/demoMode'
 import './index.css'
+
+function PublicConfigBootstrap() {
+  useEffect(() => {
+    authApi
+      .publicConfig()
+      .then(res => {
+        applyServerDemoEntries(res.data.demo_entries_enabled)
+      })
+      .catch(() => undefined)
+  }, [])
+  return null
+}
 
 function App() {
   return (
     <>
+      <PublicConfigBootstrap />
       <Toaster
         position="top-right"
         toastOptions={{

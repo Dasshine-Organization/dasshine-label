@@ -132,15 +132,13 @@ export function useModalityWorkspace(
           setLastSavedAt(data.draft_updated_at ?? local?.savedAt ?? null)
         }
         setUseBackend(true)
-      } else if (isDemoTaskId(taskId)) {
+      } else {
         const data = offlineFor(kind, taskId, annTypeHint)
         const local = readLocalDraft(kind, taskId)
         setWs(data)
         setPayload(local?.payload ?? data.payload)
         setLastSavedAt(local?.savedAt ?? null)
         setUseBackend(false)
-      } else {
-        throw new Error('未登录或无效任务')
       }
     } catch (e) {
       if (isDemoTaskId(taskId)) {

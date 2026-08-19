@@ -86,6 +86,7 @@ services:
       args:
         VITE_API_URL: /api/v1
         VITE_FILE_SERVER_URL: ${PUBLIC_URL:-http://localhost:8080}
+        VITE_ENABLE_DEMO_ENTRIES: ${VITE_ENABLE_DEMO_ENTRIES:-false}
     container_name: dasshine-frontend
     restart: unless-stopped
     ports:

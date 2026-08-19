@@ -38,5 +38,6 @@ def test_rate_limit_middleware_bucket_resolution():
     assert mw._resolve_bucket("POST", "/api/v1/auth/login")[1] == "auth"
     assert mw._resolve_bucket("POST", "/api/v1/auth/register")[1] == "auth"
     assert mw._resolve_bucket("POST", "/api/v1/tasks/1/claim")[1] == "claim"
+    assert mw._resolve_bucket("POST", "/api/v1/tasks/claim-next")[1] == "claim"
     assert mw._resolve_bucket("POST", "/api/v1/projects/1/import/zip")[1] == "import"
     assert mw._resolve_bucket("GET", "/api/v1/projects")[1] == "api"

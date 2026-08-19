@@ -207,6 +207,7 @@ def get_available_tasks(
 @router.post("/tasks/claim-next")
 def claim_next_task(
     project_id: Optional[int] = None,
+    prefer_active_learning: bool = Query(False, description="优先领取主动学习池任务"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -232,6 +233,27 @@ def claim_next_task(
             query = query.filter(Project.organization_id == current_user.active_org_id)
 
     candidates = query.order_by(Task.priority.desc(), Task.id.asc()).limit(40).all()
+
+    if prefer_active_learning and project_id:
+        from app.services.active_learning import pool_task_ids
+
+        pool_ids = set(pool_task_ids(db, project_id))
+        if pool_ids:
+            in_pool = [t for t in candidates if t.id in pool_ids]
+            rest = [t for t in candidates if t.id not in pool_ids]
+            candidates = in_pool + rest
+    elif project_id:
+        proj = db.query(Project).filter(Project.id == project_id).first()
+        qc = proj.quality_config if proj and isinstance(proj.quality_config, dict) else {}
+        if qc.get("active_learning_prefer_claim"):
+            from app.services.active_learning import pool_task_ids
+
+            pool_ids = set(pool_task_ids(db, project_id))
+            if pool_ids:
+                in_pool = [t for t in candidates if t.id in pool_ids]
+                rest = [t for t in candidates if t.id not in pool_ids]
+                candidates = in_pool + rest
+
     for task in candidates:
         if not task.project:
             continue

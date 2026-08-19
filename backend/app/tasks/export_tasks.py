@@ -24,7 +24,13 @@ logger = logging.getLogger(__name__)
 @shared_task(bind=True, max_retries=2)
 def export_project_data(self, project_id: int, format: str, user_id: int, status: str = "approved"):
     """异步导出项目数据，写入统一存储并返回公网 download_url。"""
+    import time
+
+    from app.core.metrics import observe_export
+
     db = SessionLocal()
+    started = time.perf_counter()
+    ok = False
     try:
         project = db.query(Project).filter(Project.id == project_id).first()
         if not project:
@@ -79,17 +85,35 @@ def export_project_data(self, project_id: int, format: str, user_id: int, status
             storage.backend_name,
             download_url,
         )
+        snap_version = None
+        snap_id = None
         try:
             from app.services import audit
+            from app.services.export_snapshots import create_snapshot
             from app.services.webhooks import emit
 
             org_id = getattr(project, "organization_id", None)
+            snap = create_snapshot(
+                db,
+                project_id=project_id,
+                tasks=tasks,
+                fmt=fmt,
+                status_filter=status or "approved",
+                storage_path=rel_or_key,
+                download_url=download_url,
+                size_bytes=len(artifact.content),
+                created_by_id=user_id,
+            )
+            snap_version = snap.version
+            snap_id = snap.id
             payload = {
                 "project_id": project_id,
                 "format": fmt,
                 "download_url": download_url,
                 "user_id": user_id,
                 "bytes": len(artifact.content),
+                "snapshot_version": snap_version,
+                "snapshot_id": snap_id,
             }
             emit(db, org_id, "export.done", payload)
             audit.record(
@@ -97,13 +121,14 @@ def export_project_data(self, project_id: int, format: str, user_id: int, status
                 action="export.done",
                 actor_user_id=user_id,
                 organization_id=org_id,
-                resource_type="project",
-                resource_id=project_id,
-                detail={"format": fmt, "bytes": len(artifact.content)},
+                resource_type="export_snapshot",
+                resource_id=snap_id,
+                detail={"format": fmt, "bytes": len(artifact.content), "version": snap_version},
             )
             db.commit()
         except Exception:
-            logger.exception("export webhook/audit failed")
+            logger.exception("export webhook/audit/snapshot failed")
+        ok = True
         return {
             "project_id": project_id,
             "format": fmt,
@@ -113,6 +138,8 @@ def export_project_data(self, project_id: int, format: str, user_id: int, status
             "storage_backend": storage.backend_name,
             "status": "completed",
             "bytes": len(artifact.content),
+            "snapshot_version": snap_version,
+            "snapshot_id": snap_id,
         }
     except Exception as exc:
         logger.error("导出失败: %s", exc)
@@ -121,4 +148,5 @@ def export_project_data(self, project_id: int, format: str, user_id: int, status
             raise
         raise self.retry(exc=exc, countdown=60) from exc
     finally:
+        observe_export("celery", "ok" if ok else "error", time.perf_counter() - started)
         db.close()

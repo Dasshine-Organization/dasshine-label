@@ -56,6 +56,7 @@ def init_db() -> None:
         storage_mount,
         notification,
         enterprise,
+        export_snapshot,
     )
 
     Base.metadata.create_all(bind=engine)

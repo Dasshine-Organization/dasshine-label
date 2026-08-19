@@ -119,10 +119,13 @@ def public_auth_config():
     """前端用：注册开关 / OIDC 是否可用"""
     from app.services.oidc import oidc_configured
 
+    demo = bool(settings.DEMO_ENTRIES_ENABLED) or bool(settings.DEBUG)
     return {
         "register_enabled": bool(settings.AUTH_REGISTER_ENABLED),
         "oidc_enabled": oidc_configured(),
         "frontend_url": settings.FRONTEND_URL,
+        "demo_entries_enabled": demo,
+        "metrics_enabled": bool(settings.METRICS_ENABLED),
     }
 
 

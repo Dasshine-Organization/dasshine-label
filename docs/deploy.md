@@ -57,6 +57,7 @@ chmod +x deploy.sh
 - 访问日志：JSON 行（`dasshine.access`），含 `request_id` / `duration_ms` / `status`
 - 响应头：`X-Request-ID`；限流响应另含 `X-RateLimit-Limit` / `Remaining`
 - 导入失败：`dataset_import_failed` 警告日志，API 返回 `errors[]` + `error_count`
+- Prometheus：`GET /metrics`（claim / export / collab WS）；见 `docs/p20_scale_hardening.md`
 
 ## Celery（默认启用）
 

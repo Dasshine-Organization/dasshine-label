@@ -46,9 +46,13 @@ api.interceptors.response.use(
 // 认证相关 API
 export const authApi = {
   publicConfig: () =>
-    api.get<{ register_enabled: boolean; oidc_enabled: boolean; frontend_url: string }>(
-      '/auth/public-config',
-    ),
+    api.get<{
+      register_enabled: boolean
+      oidc_enabled: boolean
+      frontend_url: string
+      demo_entries_enabled?: boolean
+      metrics_enabled?: boolean
+    }>('/auth/public-config'),
 
   // 注册
   register: (data: {
@@ -215,6 +219,29 @@ export const projectApi = {
     ),
 
   getStats: (projectId: number) => api.get(`/projects/${projectId}/stats`),
+
+  getAnalytics: (projectId: number, days = 30) =>
+    api.get<{
+      summary: Record<string, number>
+      price_per_task?: number
+      tat_hours?: Record<string, number | null>
+      daily_throughput?: Array<{ date: string; approved: number }>
+    }>(`/projects/${projectId}/analytics`, { params: { days } }),
+
+  getActiveLearningPool: (projectId: number) =>
+    api.get<{ total: number; threshold: number; items: Array<Record<string, unknown>> }>(
+      `/projects/${projectId}/active-learning`,
+    ),
+
+  syncActiveLearning: (projectId: number) =>
+    api.post<{ added: number; removed: number; threshold: number }>(
+      `/projects/${projectId}/active-learning/sync`,
+    ),
+
+  relabelActiveLearning: (projectId: number, taskIds: number[]) =>
+    api.post<{ promoted: number }>(`/projects/${projectId}/active-learning/relabel`, {
+      task_ids: taskIds,
+    }),
 
   getGoldenTasks: (projectId: number) =>
     api.get<{
@@ -383,6 +410,20 @@ export const exportApi = {
       approved_tasks?: number
       ready_for_export?: number
     }>(`/export/${projectId}/stats`),
+
+  listSnapshots: (projectId: number, limit = 20) =>
+    api.get<{
+      total: number
+      items: Array<{
+        id: number
+        version: number
+        format: string
+        download_url?: string
+        bytes: number
+        task_count: number
+        created_at?: string
+      }>
+    }>(`/export/${projectId}/snapshots`, { params: { limit } }),
 }
 
 // LLM / Whisper / OCR 自动标注（2D 图像请用 taskApi prelabel）

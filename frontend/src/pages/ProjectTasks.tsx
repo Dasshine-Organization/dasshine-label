@@ -5,6 +5,8 @@ import api, { autoLabelApi, projectApi } from '../services/api'
 import ProjectExportMenu from '../components/dataset/ProjectExportMenu'
 import ProjectMembersPanel from '../components/project/ProjectMembersPanel'
 import ProjectQualityPanel from '../components/project/ProjectQualityPanel'
+import ActiveLearningPanel from '../components/project/ActiveLearningPanel'
+import ProjectAnalyticsPanel from '../components/project/ProjectAnalyticsPanel'
 import { getAnnotatePath, getCategoryProjectsPath, resolveTaskMode } from '../utils/annotationRoutes'
 import type { ProjectSummary } from '../types/project'
 import { onProjectTaskStatus } from '../utils/projectTaskStatus'
@@ -172,6 +174,7 @@ export default function ProjectTasks() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <ProjectQualityPanel projectId={pid} />
+          <ActiveLearningPanel projectId={pid} />
           <ProjectMembersPanel projectId={pid} />
           <Link
             to={`/review?projectId=${pid}`}
@@ -202,6 +205,8 @@ export default function ProjectTasks() {
           </button>
         </div>
       </div>
+
+      <ProjectAnalyticsPanel projectId={pid} />
 
       {dispatchLogs.length > 0 && (
         <div className="mb-5 rounded-xl border border-[#1e1e2e] bg-[#12121a] px-4 py-3">

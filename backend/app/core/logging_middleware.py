@@ -20,7 +20,7 @@ logger = logging.getLogger("dasshine.access")
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """为每个请求打一条 JSON 访问日志（含 duration_ms、status、path）。"""
 
-    SKIP_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/uploads")
+    SKIP_PREFIXES = ("/docs", "/redoc", "/openapi.json", "/uploads", "/metrics", "/api/v1/media/")
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.url.path

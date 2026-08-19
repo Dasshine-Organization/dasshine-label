@@ -187,6 +187,12 @@ class Settings(BaseSettings):
     WEBHOOK_MAX_ATTEMPTS: int = 3
     ORG_INVITE_EXPIRE_DAYS: int = 7
 
+    # P20 观测 / 演示入口
+    METRICS_ENABLED: bool = True
+    METRICS_TOKEN: Optional[str] = None  # 设置后 /metrics 需 Bearer
+    # 生产默认关；DEBUG 时前端仍可按 Vite 开关展示。后端可强制关闭。
+    DEMO_ENTRIES_ENABLED: bool = False
+
 
 # 全局配置实例
 settings = Settings()

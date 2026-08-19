@@ -3,8 +3,16 @@ import {
   buildHeightColors,
   type PointCloudPayload,
 } from './pointCloud3d'
+import { pointcloudChunkUrl, uploadsRelativePath } from './chunkedMedia'
 
 const MAX_POINTS = 65000
+const LARGE_BYTES = 2 * 1024 * 1024
+const RANGE_CHUNK = 1024 * 1024
+
+export type LoadPointCloudOptions = {
+  onProgress?: (ratio: number) => void
+  maxPoints?: number
+}
 
 /** KITTI velodyne: x 前, y 左, z 上 → Three.js: y 上, x/z 地面 */
 export function kittiToSceneCoords(x: number, y: number, z: number): [number, number, number] {
@@ -64,15 +72,106 @@ export function parsePcdAscii(text: string, maxPoints = MAX_POINTS): Float32Arra
   return new Float32Array(out)
 }
 
-export async function loadPointCloudAsset(url: string): Promise<PointCloudPayload> {
+async function loadViaBackendChunks(
+  rel: string,
+  opts?: LoadPointCloudOptions,
+): Promise<PointCloudPayload | null> {
+  const maxPoints = opts?.maxPoints ?? MAX_POINTS
+  const positions: number[] = []
+  let chunk = 0
+  let totalChunks = 1
+  let sourceLabel = rel
+
+  while (chunk < totalChunks && positions.length / 3 < maxPoints) {
+    const res = await fetch(pointcloudChunkUrl(rel, chunk))
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      positions?: number[]
+      total_chunks?: number
+      total_points?: number
+      source?: string
+    }
+    totalChunks = Math.max(1, data.total_chunks ?? 1)
+    if (data.source) sourceLabel = data.source
+    if (Array.isArray(data.positions)) positions.push(...data.positions)
+    opts?.onProgress?.(Math.min(1, (chunk + 1) / totalChunks))
+    chunk += 1
+    if (!data.positions?.length) break
+  }
+
+  if (!positions.length) return null
+  const payload = buildPayloadFromPositions(new Float32Array(positions))
+  return { ...payload, sourceLabel }
+}
+
+async function loadBinWithRange(
+  url: string,
+  size: number,
+  opts?: LoadPointCloudOptions,
+): Promise<Float32Array> {
+  const maxPoints = opts?.maxPoints ?? MAX_POINTS
+  const total = Math.floor(size / 16)
+  const step = total > maxPoints ? Math.ceil(total / maxPoints) : 1
+  const out: number[] = []
+  let offset = 0
+  while (offset < size && out.length / 3 < maxPoints) {
+    const end = Math.min(size - 1, offset + RANGE_CHUNK - 1)
+    const res = await fetch(url, { headers: { Range: `bytes=${offset}-${end}` } })
+    if (!(res.ok || res.status === 206)) {
+      throw new Error(`点云 Range 失败 (${res.status})`)
+    }
+    const buf = await res.arrayBuffer()
+    const floats = new Float32Array(buf)
+    const baseIndex = Math.floor(offset / 16)
+    const count = Math.floor(floats.length / 4)
+    for (let i = 0; i < count && out.length / 3 < maxPoints; i++) {
+      const global = baseIndex + i
+      if (global % step !== 0) continue
+      const o = i * 4
+      const [sx, sy, sz] = kittiToSceneCoords(floats[o], floats[o + 1], floats[o + 2])
+      out.push(sx, sy, sz)
+    }
+    offset = end + 1
+    opts?.onProgress?.(Math.min(1, offset / size))
+  }
+  return new Float32Array(out)
+}
+
+async function loadFull(url: string, maxPoints: number): Promise<Float32Array> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`点云加载失败 (${res.status}): ${url}`)
+  if (url.endsWith('.bin')) {
+    return parseKittiBin(await res.arrayBuffer(), maxPoints)
+  }
+  return parsePcdAscii(await res.text(), maxPoints)
+}
+
+export async function loadPointCloudAsset(
+  url: string,
+  opts?: LoadPointCloudOptions,
+): Promise<PointCloudPayload> {
+  const maxPoints = opts?.maxPoints ?? MAX_POINTS
+  const rel = uploadsRelativePath(url)
+  if (rel) {
+    const viaApi = await loadViaBackendChunks(rel, opts)
+    if (viaApi) return viaApi
+  }
+
+  let size = 0
+  try {
+    const head = await fetch(url, { method: 'HEAD' })
+    size = Number(head.headers.get('content-length') || 0)
+  } catch {
+    size = 0
+  }
 
   let positions: Float32Array
-  if (url.endsWith('.bin')) {
-    positions = parseKittiBin(await res.arrayBuffer())
+  if (url.endsWith('.bin') && size > LARGE_BYTES) {
+    positions = await loadBinWithRange(url, size, opts)
   } else {
-    positions = parsePcdAscii(await res.text())
+    opts?.onProgress?.(0.2)
+    positions = await loadFull(url, maxPoints)
+    opts?.onProgress?.(1)
   }
 
   const payload = buildPayloadFromPositions(positions)

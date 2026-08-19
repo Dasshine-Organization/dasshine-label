@@ -149,6 +149,7 @@ def maybe_auto_approve_on_agreement(db: Session, task: Task) -> Dict[str, Any]:
     if versions:
         set_canonical(db, task, versions[0].id)
     task.status = TaskStatus.APPROVED
+    task.completed_at = datetime.now(timezone.utc)
     meta = task_meta(task)
     meta["auto_approved"] = True
     meta["auto_approved_agreement"] = result.agreement_rate

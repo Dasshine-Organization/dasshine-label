@@ -102,6 +102,7 @@ export default function Scene3DWorkspace({
   const [cloud, setCloud] = useState<PointCloudPayload | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadingCloud, setLoadingCloud] = useState(true)
+  const [loadProgress, setLoadProgress] = useState(0)
   const [activeView, setActiveView] = useState<View3DType>('perspective')
   const [isDrawing3D, setIsDrawing3D] = useState(false)
   const [drawStart, setDrawStart] = useState<{ x: number; z: number } | null>(null)
@@ -149,6 +150,7 @@ export default function Scene3DWorkspace({
     async function load() {
       setLoadingCloud(true)
       setLoadError(null)
+      setLoadProgress(0)
       if (!assetUrl) {
         if (!cancelled) {
           setCloud(null)
@@ -158,7 +160,11 @@ export default function Scene3DWorkspace({
         return
       }
       try {
-        const data = await loadPointCloudAsset(assetUrl)
+        const data = await loadPointCloudAsset(assetUrl, {
+          onProgress: ratio => {
+            if (!cancelled) setLoadProgress(ratio)
+          },
+        })
         if (cancelled) return
         baseColorsRef.current = data.colors
         setCloud(data)
@@ -704,9 +710,11 @@ export default function Scene3DWorkspace({
   if (!cloud || loadingCloud) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-[#0a0a0f] gap-2">
-        <div className="text-[#00d4ff] text-sm animate-pulse">正在加载路口点云场景…</div>
+        <div className="text-[#00d4ff] text-sm animate-pulse">
+          正在加载点云{loadProgress > 0 ? ` ${Math.round(loadProgress * 100)}%` : '…'}
+        </div>
         {taskId === '1002' && <div className="text-[10px] text-white/30">urban_intersection_mini.pcd</div>}
-        {loadError && <div className="text-[10px] text-amber-400/80 max-w-xs text-center">{loadError}（已回退演示点云）</div>}
+        {loadError && <div className="text-[10px] text-amber-400/80 max-w-xs text-center">{loadError}</div>}
       </div>
     )
   }

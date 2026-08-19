@@ -496,6 +496,7 @@ class QualityControlService:
 
         if decision == "approved":
             task.status = TaskStatus.APPROVED
+            task.completed_at = datetime.utcnow()
         else:
             # 驳回回流：回到标注中，便于标注员继续修改后再次提交
             task.status = TaskStatus.ANNOTATING

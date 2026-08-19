@@ -148,3 +148,16 @@
 - `AUTH_REGISTER_ENABLED`；OIDC 登录；组织邮件邀请；`ds_` API Key
 - 出站 Webhook（submitted / review / export）+ HMAC；只读审计；中英界面包
 
+## P19 数据集版本与看板
+
+- 计划：`docs/p19_dataset_analytics.md`
+- 不可变 `export_snapshots` + manifest；主动学习池 sync/优先 claim
+- 项目 analytics：吞吐、单价成本、TAT p50；任务页运营看板
+
+## P20 规模化硬化
+
+- 计划：`docs/p20_scale_hardening.md`
+- Playwright 每模态一条：标注→审核→导出（`frontend/e2e`）
+- 大视频 Range + 大 PCD 分片（`/api/v1/media/*`）；Prometheus `/metrics`（claim/export/collab WS）
+- 生产关演示：`VITE_ENABLE_DEMO_ENTRIES=false` + `demo_entries_enabled` 杀开关
+

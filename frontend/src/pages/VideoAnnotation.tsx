@@ -8,6 +8,7 @@ import { useWorkbenchNav } from '../hooks/useWorkbenchNav'
 import { GuidelinesAckModal, useProjectGuidelines } from '../components/annotation/GuidelinesPanel'
 import { getAnnotateBackHref } from '../utils/annotationRoutes'
 import type { VideoClip } from '../services/modalityAnnotation'
+import { toRangedMediaUrl } from '../utils/chunkedMedia'
 import {
   interpolateBbox,
   nextTrackColor,
@@ -39,7 +40,7 @@ export default function VideoAnnotation() {
   const [drawing, setDrawing] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [paused, setPaused] = useState(true)
 
-  const url = ws?.content.video_url ?? ''
+  const url = toRangedMediaUrl(ws?.content.video_url ?? '')
   const clips = payload?.clips ?? []
   const tracks: VideoTrack[] = (payload?.tracks ?? []) as VideoTrack[]
   const labels = ws?.label_classes ?? []
@@ -189,6 +190,8 @@ export default function VideoAnnotation() {
               ref={videoRef}
               src={url}
               controls
+              playsInline
+              preload="metadata"
               className="w-full max-h-[50vh] block"
               onTimeUpdate={() => setCurrentSec(videoRef.current?.currentTime ?? 0)}
               onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}

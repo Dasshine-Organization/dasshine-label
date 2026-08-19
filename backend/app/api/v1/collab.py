@@ -118,6 +118,9 @@ async def collab_ws(
     await websocket.accept()
     room = await collab_hub.room(task_id)
     await room.add(websocket, meta)
+    from app.core.metrics import collab_ws_close, collab_ws_message, collab_ws_open
+
+    collab_ws_open()
 
     try:
         await websocket.send_text(
@@ -143,6 +146,7 @@ async def collab_ws(
             except json.JSONDecodeError:
                 continue
             mtype = msg.get("type")
+            collab_ws_message(str(mtype or "unknown"))
             if mtype == "update":
                 await collab_hub.broadcast(
                     task_id,
@@ -182,6 +186,7 @@ async def collab_ws(
     except Exception as e:
         logger.warning("collab_ws error task=%s: %s", task_id, e)
     finally:
+        collab_ws_close()
         await room.remove(websocket)
         await collab_hub.broadcast(
             task_id, {"type": "presence", "presence": room.presence()}

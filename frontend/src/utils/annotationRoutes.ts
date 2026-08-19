@@ -26,7 +26,7 @@ export type AnnotationWorkspaceMode =
 export const DEMO_TASK_IDS = new Set([
   '1001', '1002', '1003', '1004', '1005', '1006',
   '2001', '2002', 'demo',
-  '3001', '3002', '3003',
+  '3001', '3002', '3003', 'ocr-demo', 'mm-demo',
 ])
 
 export function isDemoTaskId(taskId: string | number): boolean {
@@ -50,6 +50,8 @@ export const DEMO_TASK_ROUTES: Record<
   '3001': { mode: 'text', label: '语料 · NER 演示', category: 'nlp' },
   '3002': { mode: 'audio', label: '语音 · ASR 演示', category: 'audio' },
   '3003': { mode: 'video', label: '视频 · 动作片段', category: 'video' },
+  'ocr-demo': { mode: 'ocr', label: 'OCR 演示', category: 'ocr' },
+  'mm-demo': { mode: 'multimodal', label: '多模态演示', category: 'multimodal' },
 }
 
 const TEXT_CATEGORIES = new Set(['nlp'])

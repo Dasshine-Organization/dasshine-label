@@ -6,7 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -22,6 +22,7 @@ from app.api.v1 import (
     dataset,
     embodied,
     export,
+    media,
     modality_workspace,
     notifications,
     orgs,
@@ -38,6 +39,7 @@ from app.api.v1 import (
 from app.core.config import settings
 from app.core.logging_middleware import RequestLoggingMiddleware
 from app.core.logging_setup import setup_logging
+from app.core.metrics_middleware import MetricsMiddleware
 from app.core.rate_limit_middleware import RateLimitMiddleware
 
 logger = logging.getLogger("dasshine.app")
@@ -69,6 +71,7 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.add_middleware(MetricsMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
@@ -101,6 +104,7 @@ def create_application() -> FastAPI:
     app.include_router(notifications.router, prefix="/api/v1", tags=["通知"])
     app.include_router(embodied.router, prefix="/api/v1")
     app.include_router(modality_workspace.router, prefix="/api/v1")
+    app.include_router(media.router, prefix="/api/v1")
 
     upload_path = os.path.abspath(settings.UPLOAD_DIR)
     os.makedirs(upload_path, exist_ok=True)
@@ -118,6 +122,23 @@ def create_application() -> FastAPI:
     async def health_check():
         """存活探针：进程可响应即可。"""
         return {"status": "ok", "version": settings.APP_VERSION}
+
+    @app.get("/metrics")
+    async def prometheus_metrics(request: Request):
+        """Prometheus 文本格式。可选 METRICS_TOKEN Bearer 保护。"""
+        from fastapi.responses import Response
+
+        from app.core.metrics import metrics_enabled, render_metrics
+
+        token = getattr(settings, "METRICS_TOKEN", None)
+        if token:
+            auth = request.headers.get("authorization") or ""
+            if auth != f"Bearer {token}":
+                return Response(status_code=401, content="metrics unauthorized")
+        if not metrics_enabled():
+            return Response(status_code=404, content="metrics disabled")
+        body, ctype = render_metrics()
+        return Response(content=body, media_type=ctype)
 
     @app.get("/ready")
     async def readiness_check():
