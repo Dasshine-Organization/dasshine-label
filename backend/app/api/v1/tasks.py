@@ -211,7 +211,7 @@ def claim_next_task(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """领取下一题：从可领池取一条并 claim（跳过本人已 skip 的）。"""
+    """领取下一题。prefer_active_learning 或 quality_config.active_learning_prefer_claim 时，候选里池内任务排在前面。"""
     from app.models.project import Project
     from app.services.guidelines import ensure_guidelines_acked, get_member_streak
     from app.services.org_scope import project_visible_in_active_org

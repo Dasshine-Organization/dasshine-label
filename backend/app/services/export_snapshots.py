@@ -1,4 +1,8 @@
-"""不可变导出快照"""
+"""不可变导出快照（P19）。
+
+每次同步/异步导出成功后追加一行，version 按项目递增。
+manifest 只记录 task_id ↔ canonical_annotation_id，便于日后对账，写入后不再 UPDATE。
+"""
 
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ from app.models.task import Task
 
 
 def build_manifest(tasks: List[Task]) -> List[Dict[str, Any]]:
+    """导出包内任务清单。无 canonical 的任务仍占位，避免版本对不齐。"""
     return [
         {
             "task_id": t.id,
@@ -22,6 +27,7 @@ def build_manifest(tasks: List[Task]) -> List[Dict[str, Any]]:
 
 
 def next_version(db: Session, project_id: int) -> int:
+    """下一版本号 = 当前 max(version)+1；无快照时从 1 起。"""
     current = (
         db.query(func.max(ExportSnapshot.version))
         .filter(ExportSnapshot.project_id == project_id)
@@ -42,6 +48,7 @@ def create_snapshot(
     size_bytes: int,
     created_by_id: Optional[int],
 ) -> ExportSnapshot:
+    """落一条快照。调用方负责 commit；失败应 rollback 以免空洞 version。"""
     snap = ExportSnapshot(
         project_id=project_id,
         version=next_version(db, project_id),

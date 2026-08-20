@@ -50,7 +50,7 @@ npm run test:e2e
 |------|------|------|
 | `METRICS_ENABLED` | true | 关闭后 `/metrics` 404 |
 | `METRICS_TOKEN` | 空 | 设置则需 Bearer |
-| `DEMO_ENTRIES_ENABLED` | false | 与 `DEBUG` 一起写入 public-config |
+| `DEMO_ENTRIES_ENABLED` | false | 写入 public-config；**不**因 DEBUG 自动打开 |
 | `VITE_ENABLE_DEMO_ENTRIES` | 生产 false | 编译期演示入口 |
 
 ## 验收

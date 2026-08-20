@@ -1,11 +1,16 @@
-/** 演示任务 / 演示入口开关（产品默认走真实项目列表） */
+/**
+ * 演示入口开关。
+ *
+ * 优先级：VITE_ENABLE_DEMO_ENTRIES=true/false 强制 → DEV 默认开 →
+ * 生产构建看后端 public-config.demo_entries_enabled。
+ * 生产 Docker 编译期为 false，即使后端误开 DEBUG 也不会因 Vite 再露出演示区。
+ */
 
 type Listener = () => void
 
 let serverAllowsDemo: boolean | null = null
 const listeners = new Set<Listener>()
 
-/** 后端 public-config.demo_entries_enabled；false 时强制关闭（生产杀开关） */
 export function applyServerDemoEntries(enabled: boolean | undefined | null) {
   if (enabled === undefined || enabled === null) return
   serverAllowsDemo = Boolean(enabled)
@@ -20,10 +25,9 @@ export function subscribeDemoEntries(fn: Listener): () => void {
 }
 
 export function isDemoEntriesEnabled(): boolean {
-  if (serverAllowsDemo === false) return false
   const flag = import.meta.env.VITE_ENABLE_DEMO_ENTRIES
   if (flag === 'true') return true
   if (flag === 'false') return false
-  // 本地开发默认展示「演示」分区，生产构建默认隐藏
-  return Boolean(import.meta.env.DEV)
+  if (import.meta.env.DEV) return true
+  return serverAllowsDemo === true
 }

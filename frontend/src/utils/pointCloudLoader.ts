@@ -1,3 +1,7 @@
+/**
+ * 点云加载：优先 /media/pointcloud 分片；大 .bin 再走 HTTP Range 抽样。
+ * 坐标统一 KITTI → Three.js 后平移到包围盒中心。
+ */
 import {
   computePointCloudBounds,
   buildHeightColors,

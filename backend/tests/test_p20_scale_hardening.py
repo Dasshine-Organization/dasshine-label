@@ -1,20 +1,15 @@
-"""P20：Range 媒体、点云分片、Prometheus、全模态导出冒烟。"""
+"""P20 契约：Range、点云采样、Prometheus 路径、全模态默认导出非空。"""
 
 from __future__ import annotations
 
 import struct
 from pathlib import Path
 
-from app.core.metrics import (
-    CLAIM_TOTAL,
-    COLLAB_WS_CONNECTIONS,
-    observe_claim,
-    render_metrics,
-)
+from app.core.metrics import COLLAB_WS_CONNECTIONS, observe_claim, render_metrics
 from app.core.metrics_middleware import _claim_kind, _export_kind
 from app.core.rate_limit_middleware import RateLimitMiddleware
 from app.services.media_range import parse_range, pointcloud_chunk, sample_kitti_bin, sample_pcd_ascii
-from app.services.modality_smoke import CATEGORIES, all_category_export_smokes, export_smoke
+from tests.helpers_modality_smoke import CATEGORIES, all_category_export_smokes, export_smoke
 
 
 def test_parse_range_suffix_and_open_end():
@@ -57,11 +52,9 @@ def test_sample_pcd_ascii(tmp_path: Path):
 
 def test_sample_kitti_bin(tmp_path: Path):
     path = tmp_path / "scan.bin"
-    # two points: (1,0,0,1) and (0,1,0,1)
     path.write_bytes(struct.pack("<ffff", 1.0, 0.0, 0.0, 1.0) + struct.pack("<ffff", 0.0, 1.0, 0.0, 1.0))
     pts = sample_kitti_bin(path, max_points=10)
     assert pts.shape[0] == 2
-    # y_kitti=0 → z_scene=0; y_kitti=1 → z_scene=-1
     assert abs(pts[0][0] - 1.0) < 1e-5
 
 
@@ -74,7 +67,6 @@ def test_metrics_render_contains_claim_and_collab():
     assert "dasshine_export_total" in text
     assert "dasshine_collab_ws_connections" in text
     assert "text/plain" in ctype
-    CLAIM_TOTAL.labels(kind="claim_next", status="ok")  # exists
 
 
 def test_metrics_middleware_path_match():
@@ -100,10 +92,9 @@ def test_each_category_default_export_nonempty():
         assert export_smoke(cat, fmt)
 
 
-def test_public_config_includes_demo_flag():
+def test_demo_flag_is_explicit_setting():
     from app.core.config import settings
 
     assert hasattr(settings, "DEMO_ENTRIES_ENABLED")
     assert hasattr(settings, "METRICS_ENABLED")
-    demo = bool(settings.DEMO_ENTRIES_ENABLED) or bool(settings.DEBUG)
-    assert isinstance(demo, bool)
+    assert settings.DEMO_ENTRIES_ENABLED is False or settings.DEMO_ENTRIES_ENABLED is True

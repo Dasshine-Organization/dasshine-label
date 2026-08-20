@@ -1,5 +1,9 @@
 /**
- * 大视频 / 大点云：优先走后端 Range / 分片 API。
+ * 大视频 / 大点云 URL。
+ *
+ * 浏览器 <video> 只能走普通 GET，所以同源 /uploads 交给 Nginx Range；
+ * 非 /uploads 但能解析出相对路径时改走 /api/v1/media/file。
+ * 点云 JSON 分片走 /media/pointcloud（fetch，可带鉴权，当前与 uploads 同级公开）。
  */
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:8000/api/v1'

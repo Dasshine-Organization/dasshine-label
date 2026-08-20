@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, JSON, UniqueConstraint
@@ -31,6 +31,8 @@ class ExportSnapshot(Base):
     task_count: Mapped[int] = mapped_column(Integer, default=0)
     manifest: Mapped[List[Dict[str, Any]]] = mapped_column(JSON)
     created_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     project: Mapped["Project"] = relationship("Project")

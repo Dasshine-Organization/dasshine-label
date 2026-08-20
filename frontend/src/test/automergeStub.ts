@@ -1,4 +1,4 @@
-/** E2E / 无 Wasm 环境下的 Automerge 替身（不连真共编）。 */
+/** E2E 无 Wasm 时的 Automerge 替身：本地改文档、不发 CRDT。仅 VITE_E2E_STUB_AUTOMERGE 时 alias 进来。 */
 
 export type Doc<T> = T
 

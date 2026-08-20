@@ -289,6 +289,7 @@ def list_export_snapshots(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """项目导出历史版本（只读）。权限与同步导出相同。"""
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")

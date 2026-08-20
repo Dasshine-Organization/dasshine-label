@@ -125,7 +125,7 @@ def create_application() -> FastAPI:
 
     @app.get("/metrics")
     async def prometheus_metrics(request: Request):
-        """Prometheus 文本格式。可选 METRICS_TOKEN Bearer 保护。"""
+        """Prometheus 文本。未设 METRICS_TOKEN 时公开（仅内网暴露）；设了则需 Bearer。"""
         from fastapi.responses import Response
 
         from app.core.metrics import metrics_enabled, render_metrics

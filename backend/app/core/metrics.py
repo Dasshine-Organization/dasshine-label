@@ -1,4 +1,9 @@
-"""Prometheus 指标：领取 / 导出 / 共编 WS。"""
+"""Prometheus 计数（P20）。
+
+独立 Registry，避免与默认进程指标混在一起。
+claim/export 由 MetricsMiddleware 按路径打点；Celery 导出走 kind=celery；
+共编 WS 在 collab_ws 里对连接数和消息类型计数。
+"""
 
 from __future__ import annotations
 

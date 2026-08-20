@@ -7,6 +7,7 @@ interface GuardProps {
   children: React.ReactNode
 }
 
+/** Zustand persist 未完成前不要判登录，否则会闪到 /login 再弹回（E2E/刷新都会踩）。 */
 function useAuthHydrated() {
   const [hydrated, setHydrated] = useState(() => useAuthStore.persist.hasHydrated())
   useEffect(() => {

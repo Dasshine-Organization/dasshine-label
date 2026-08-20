@@ -1,8 +1,18 @@
-"""主动学习池：低置信 / 未预标注样本优先入池"""
+"""主动学习池（P19）。
+
+把「模型没把握」的待领任务标进 task_metadata.active_learning_pool，
+claim-next 可选择先发这些题。入池条件：
+
+- 状态 PENDING 且无人领取
+- pre_label_confidence 缺失，或低于 quality_config.active_learning_threshold
+  （未配置则用 AUTO_LABEL_CONFIDENCE_THRESHOLD）
+
+高置信任务若已在池内会在 sync 时移出，避免池被已经高置信的题占满。
+"""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
@@ -26,7 +36,7 @@ def _meta(task: Task) -> Dict[str, Any]:
 
 
 def sync_pool(db: Session, project: Project) -> Dict[str, int]:
-    """将低置信 pending 任务标记入主动学习池。"""
+    """扫描项目待领任务，按阈值增删池标记。返回 added/removed 计数。"""
     th = _threshold(project)
     tasks = (
         db.query(Task)
@@ -59,14 +69,20 @@ def sync_pool(db: Session, project: Project) -> Dict[str, int]:
 
 
 def list_pool(db: Session, project_id: int, limit: int = 100) -> List[Task]:
+    """池内待领任务：低置信优先。JSON 标记在 Python 侧过滤（兼容 SQLite/PG）。"""
     rows = (
         db.query(Task)
-        .filter(Task.project_id == project_id, Task.status == TaskStatus.PENDING)
+        .filter(
+            Task.project_id == project_id,
+            Task.status == TaskStatus.PENDING,
+            Task.assignee_id.is_(None),
+        )
         .order_by(Task.pre_label_confidence.asc().nullsfirst(), Task.priority.desc(), Task.id.asc())
-        .limit(min(limit, 500))
+        .limit(min(limit * 4, 500))
         .all()
     )
-    return [t for t in rows if _meta(t).get("active_learning_pool")]
+    pooled = [t for t in rows if _meta(t).get("active_learning_pool")]
+    return pooled[: min(limit, 500)]
 
 
 def pool_count(db: Session, project_id: int) -> int:
@@ -78,7 +94,7 @@ def pool_task_ids(db: Session, project_id: int) -> List[int]:
 
 
 def promote_for_relabel(db: Session, project_id: int, task_ids: List[int]) -> int:
-    """重新入队：释放 assignee，保持 pool 标记。"""
+    """管理员指定重标：释放领取人、回到 PENDING，并强制留在池中。"""
     if not task_ids:
         return 0
     rows = (

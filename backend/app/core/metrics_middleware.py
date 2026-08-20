@@ -1,4 +1,8 @@
-"""从 HTTP 路径打点 claim / export（不侵入业务函数）。"""
+"""按 HTTP 路径给 claim / export 打点，避免改业务 handler。
+
+仅匹配 POST …/claim、…/claim-next、GET …/export/{id}、POST …/export/{id}/jobs。
+404/400 记 empty（无可领/无可导），其它非 2xx 记 error。
+"""
 
 from __future__ import annotations
 

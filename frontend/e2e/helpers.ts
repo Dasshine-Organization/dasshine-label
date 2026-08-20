@@ -1,5 +1,9 @@
-import type { Page } from '@playwright/test'
+import type { Page, Route } from '@playwright/test'
 
+/**
+ * 每模态一条冒烟：打开工作台 → 审核通过 → 项目导出。
+ * 全程 mock /api/v1，不连真实后端；演示 taskId 对应离线工作台。
+ */
 export type ModalitySmoke = {
   id: string
   category: string
@@ -9,73 +13,25 @@ export type ModalitySmoke = {
   exportFormat: string
 }
 
-/** 每模态一条：导入(有任务) → 标注 → 审核 → 导出 */
 export const MODALITIES: ModalitySmoke[] = [
-  {
-    id: 'image_2d',
-    category: 'image_2d',
-    annotatePath: '/annotate-image/1001',
-    submitName: /提交/,
-    reviewLabel: '图像 2D 样例',
-    exportFormat: 'coco',
-  },
-  {
-    id: 'pointcloud_3d',
-    category: 'pointcloud_3d',
-    annotatePath: '/annotate-3d/1002',
-    submitName: /提交/,
-    reviewLabel: '点云样例',
-    exportFormat: 'kitti',
-  },
-  {
-    id: 'nlp',
-    category: 'nlp',
-    annotatePath: '/annotate-text/3001',
-    submitName: /提交标注/,
-    reviewLabel: '语料样例',
-    exportFormat: 'jsonl',
-  },
-  {
-    id: 'audio',
-    category: 'audio',
-    annotatePath: '/annotate-audio/3002',
-    submitName: /提交标注/,
-    reviewLabel: '语音样例',
-    exportFormat: 'jsonl',
-  },
-  {
-    id: 'video',
-    category: 'video',
-    annotatePath: '/annotate-video/3003',
-    submitName: /提交标注/,
-    reviewLabel: '视频样例',
-    exportFormat: 'jsonl',
-  },
-  {
-    id: 'ocr',
-    category: 'ocr',
-    annotatePath: '/annotate-ocr/ocr-demo',
-    submitName: /提交审核/,
-    reviewLabel: 'OCR 样例',
-    exportFormat: 'jsonl',
-  },
-  {
-    id: 'multimodal',
-    category: 'multimodal',
-    annotatePath: '/annotate-multimodal/mm-demo',
-    submitName: /提交标注/,
-    reviewLabel: '多模态样例',
-    exportFormat: 'jsonl',
-  },
-  {
-    id: 'embodied',
-    category: 'embodied',
-    annotatePath: '/annotate-embodied/demo',
-    submitName: /提交审核/,
-    reviewLabel: '具身样例',
-    exportFormat: 'json',
-  },
+  { id: 'image_2d', category: 'image_2d', annotatePath: '/annotate-image/1001', submitName: /提交/, reviewLabel: '图像 2D 样例', exportFormat: 'coco' },
+  { id: 'pointcloud_3d', category: 'pointcloud_3d', annotatePath: '/annotate-3d/1002', submitName: /提交/, reviewLabel: '点云样例', exportFormat: 'kitti' },
+  { id: 'nlp', category: 'nlp', annotatePath: '/annotate-text/3001', submitName: /提交标注/, reviewLabel: '语料样例', exportFormat: 'jsonl' },
+  { id: 'audio', category: 'audio', annotatePath: '/annotate-audio/3002', submitName: /提交标注/, reviewLabel: '语音样例', exportFormat: 'jsonl' },
+  { id: 'video', category: 'video', annotatePath: '/annotate-video/3003', submitName: /提交标注/, reviewLabel: '视频样例', exportFormat: 'jsonl' },
+  { id: 'ocr', category: 'ocr', annotatePath: '/annotate-ocr/ocr-demo', submitName: /提交审核/, reviewLabel: 'OCR 样例', exportFormat: 'jsonl' },
+  { id: 'multimodal', category: 'multimodal', annotatePath: '/annotate-multimodal/mm-demo', submitName: /提交标注/, reviewLabel: '多模态样例', exportFormat: 'jsonl' },
+  { id: 'embodied', category: 'embodied', annotatePath: '/annotate-embodied/demo', submitName: /提交审核/, reviewLabel: '具身样例', exportFormat: 'json' },
 ]
+
+function json(route: Route, body: unknown, extra?: { headers?: Record<string, string> }) {
+  return route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(body),
+    headers: extra?.headers,
+  })
+}
 
 export async function seedAuth(page: Page) {
   await page.addInitScript(() => {
@@ -107,162 +63,84 @@ export async function seedAuth(page: Page) {
 
 export async function installApiMocks(page: Page, modality: ModalitySmoke) {
   await page.route('**/api/v1/**', async route => {
-    const req = route.request()
-    const url = req.url()
-    const method = req.method()
+    const url = route.request().url()
+    const method = route.request().method()
+    const taskId = 9000 + MODALITIES.findIndex(m => m.id === modality.id)
 
     if (url.includes('/auth/public-config')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          register_enabled: true,
-          oidc_enabled: false,
-          frontend_url: 'http://127.0.0.1:4173',
-          demo_entries_enabled: true,
-          metrics_enabled: true,
-        }),
+      return json(route, {
+        register_enabled: true,
+        oidc_enabled: false,
+        frontend_url: 'http://127.0.0.1:4173',
+        demo_entries_enabled: true,
+        metrics_enabled: true,
       })
     }
-
     if (url.includes('/quality/queue')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total: 1,
-          items: [
-            {
-              id: 9000 + MODALITIES.findIndex(m => m.id === modality.id),
-              project_id: 1,
-              project_name: `E2E ${modality.category}`,
-              category: modality.category,
-              status: 'submitted',
-              filename: modality.reviewLabel,
-              assignee_name: 'e2e',
-            },
-          ],
-        }),
-      })
-    }
-
-    if (url.includes('/quality/tasks/') && method === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 9001,
+      return json(route, {
+        total: 1,
+        items: [{
+          id: taskId,
           project_id: 1,
           project_name: `E2E ${modality.category}`,
           category: modality.category,
           status: 'submitted',
           filename: modality.reviewLabel,
-          annotations2d: [],
-          modality_preview: { modality: modality.category },
-        }),
+          assignee_name: 'e2e',
+        }],
       })
     }
-
+    if (url.includes('/quality/tasks/') && method === 'GET') {
+      return json(route, {
+        id: taskId,
+        project_id: 1,
+        project_name: `E2E ${modality.category}`,
+        category: modality.category,
+        status: 'submitted',
+        filename: modality.reviewLabel,
+        annotations2d: [],
+        modality_preview: { modality: modality.category },
+      })
+    }
     if (url.includes('/quality/review') && method === 'POST') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          message: '已通过',
-          task_id: 9001,
-          task_status: 'approved',
-        }),
-      })
+      return json(route, { success: true, message: '已通过', task_id: taskId, task_status: 'approved' })
     }
-
     if (url.includes('/projects/1') && !url.includes('/tasks') && method === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 1,
-          name: `E2E ${modality.category}`,
-          category: modality.category,
-          status: 'active',
-          total_items: 1,
-          approved_items: 1,
-        }),
+      return json(route, {
+        id: 1,
+        name: `E2E ${modality.category}`,
+        category: modality.category,
+        status: 'active',
+        total_items: 1,
+        approved_items: 1,
       })
     }
-
     if (url.includes('/projects/1/tasks')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          total: 1,
-          items: [
-            {
-              id: 1,
-              project_id: 1,
-              filename: 'sample',
-              status: 'approved',
-              priority: 5,
-              category: modality.category,
-            },
-          ],
-        }),
+      return json(route, {
+        total: 1,
+        items: [{ id: 1, project_id: 1, filename: 'sample', status: 'approved', priority: 5, category: modality.category }],
       })
     }
-
     if (url.includes('/export/1/stats')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          project_id: 1,
-          category: modality.category,
-          default_format: modality.exportFormat,
-          approved_tasks: 1,
-          formats: [
-            {
-              id: modality.exportFormat,
-              label: modality.exportFormat,
-              ext: 'bin',
-              description: 'e2e',
-              primary: true,
-            },
-          ],
-        }),
+      return json(route, {
+        project_id: 1,
+        category: modality.category,
+        default_format: modality.exportFormat,
+        approved_tasks: 1,
+        formats: [{ id: modality.exportFormat, label: modality.exportFormat, ext: 'bin', description: 'e2e', primary: true }],
       })
     }
-
     if (url.includes('/export/1/snapshots')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ items: [] }),
-      })
+      return json(route, { items: [] })
     }
-
     if (url.match(/\/export\/1(\?|$)/) && method === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
+      return json(route, { ok: true, category: modality.category }, {
         headers: { 'Content-Disposition': 'attachment; filename="e2e.json"' },
-        body: JSON.stringify({ ok: true, category: modality.category }),
       })
     }
-
     if (url.includes('/analytics') || url.includes('/active-learning') || url.includes('/dispatch-logs')) {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ summary: {}, items: [], logs: [], total: 0 }),
-      })
+      return json(route, { summary: {}, items: [], logs: [], total: 0 })
     }
-
-    // 其余 API：避免 401 踢回登录
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ ok: true, items: [], total: 0 }),
-    })
+    return json(route, { ok: true, items: [], total: 0 })
   })
 }

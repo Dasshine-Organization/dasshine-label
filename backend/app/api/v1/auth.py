@@ -116,10 +116,10 @@ def register(user_data: UserRegister, db: Session = Depends(get_db)):
 
 @router.get("/auth/public-config")
 def public_auth_config():
-    """前端用：注册开关 / OIDC 是否可用"""
+    """前端启动配置。demo_entries_enabled 仅看 DEMO_ENTRIES_ENABLED，不因 DEBUG 强开。"""
     from app.services.oidc import oidc_configured
 
-    demo = bool(settings.DEMO_ENTRIES_ENABLED) or bool(settings.DEBUG)
+    demo = bool(settings.DEMO_ENTRIES_ENABLED)
     return {
         "register_enabled": bool(settings.AUTH_REGISTER_ENABLED),
         "oidc_enabled": oidc_configured(),

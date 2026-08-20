@@ -8,9 +8,9 @@
 |------|------|
 | 导出快照 | 同步/异步导出后写入 `export_snapshots`（version 递增 + manifest） |
 | 快照列表 | `GET /export/{project_id}/snapshots`；导出菜单「历史快照」 |
-| 主动学习 | `POST .../active-learning/sync` 低置信入池；`GET .../active-learning` |
+| 主动学习 | `POST .../active-learning/sync` 低置信入池；`GET .../active-learning`；面板可勾选 `POST .../relabel` |
 | 优先领取 | `claim-next?prefer_active_learning=true` 或 `quality_config.active_learning_prefer_claim` |
-| 运营看板 | `GET /projects/{id}/analytics?days=30` — 吞吐、TAT p50、累计成本 |
+| 运营看板 | `GET /projects/{id}/analytics?days=30` — 吞吐、TAT p50、累计成本（SQL 聚合计数） |
 | completed_at | 审核通过 / 自动过审时写入，供 TAT 统计 |
 
 ## 迁移

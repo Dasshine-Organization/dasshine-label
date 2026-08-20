@@ -6,18 +6,26 @@ import math
 import re
 import struct
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple
-
-import numpy as np
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)")
 DEFAULT_CHUNK_POINTS = 20_000
 MAX_SAMPLE_POINTS = 65_000
+
+
+def _np():
+    import numpy as np
+
+    return np
+
 STREAM_CHUNK_BYTES = 1024 * 1024
 
 
 def parse_range(header: Optional[str], size: int) -> Optional[Tuple[int, int]]:
-    """解析 Range 头，返回闭区间 (start, end)。无效则 None（整文件）。"""
+    """解析 Range 头，返回闭区间 (start, end)。
+
+    无 Range / 无法解析 / 越界时返回 None。调用方：无头则整文件；有头但 None 应 416。
+    """
     if not header or size <= 0:
         return None
     first = header.split(",")[0].strip().replace(" ", "")
@@ -82,7 +90,8 @@ def _pcd_header_fields(text: str) -> Tuple[List[str], int, str, int]:
     return fields, points, data_kind, header_chars
 
 
-def sample_kitti_bin(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> np.ndarray:
+def sample_kitti_bin(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> Any:
+    np = _np()
     size = path.stat().st_size
     total = size // 16
     if total <= 0:
@@ -102,7 +111,8 @@ def sample_kitti_bin(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> np.ndar
     return np.asarray(out, dtype=np.float32)
 
 
-def sample_pcd_ascii(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> np.ndarray:
+def sample_pcd_ascii(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> Any:
+    np = _np()
     raw = path.read_bytes()
     try:
         text = raw.decode("utf-8")
@@ -138,7 +148,7 @@ def sample_pcd_ascii(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> np.ndar
     return np.asarray(out, dtype=np.float32)
 
 
-def sample_pointcloud(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> np.ndarray:
+def sample_pointcloud(path: Path, max_points: int = MAX_SAMPLE_POINTS) -> Any:
     suffix = path.suffix.lower()
     if suffix == ".bin":
         return sample_kitti_bin(path, max_points)

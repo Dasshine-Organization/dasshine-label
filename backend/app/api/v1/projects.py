@@ -435,6 +435,7 @@ def get_project_analytics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """运营看板：吞吐 / 单价累计成本 / TAT p50。成员或审核员可看。"""
     from app.services.project_analytics import get_project_analytics as analytics
     from app.services.project_acl import can_administrate_project, get_project_member
 

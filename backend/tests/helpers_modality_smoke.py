@@ -1,9 +1,9 @@
-"""按类别构造最小可导出 payload，供冒烟与 Playwright 对照。"""
+"""测试专用：各模态最小可导出 payload。不进入运行时 app.services。"""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.exporters import build_export, default_format_for
 from app.services.exporters.registry import FORMATS_BY_CATEGORY
@@ -153,7 +153,7 @@ def smoke_payload(category: str) -> Tuple[Dict[str, Any], Dict[str, Any], str]:
     raise ValueError(f"unknown category {category}")
 
 
-def export_smoke(category: str, fmt: str | None = None) -> bytes:
+def export_smoke(category: str, fmt: Optional[str] = None) -> bytes:
     data, ann, url = smoke_payload(category)
     fmt = (fmt or default_format_for(category)).strip().lower()
     artifact = build_export(

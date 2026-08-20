@@ -22,7 +22,7 @@ type Analytics = {
   daily_throughput?: Array<{ date: string; approved: number }>
 }
 
-/** 项目吞吐 / 单价 / TAT 指标卡 */
+/** 项目运营看板：近 30 天吞吐、累计成本（单价×历史通过数）、TAT p50。无数据时整块不渲染。 */
 export default function ProjectAnalyticsPanel({ projectId }: Props) {
   const [data, setData] = useState<Analytics | null>(null)
 

@@ -1,4 +1,8 @@
-"""大文件 Range 流与点云分片 API。"""
+"""大文件 Range 流与点云分片 API（P20）。
+
+与 `/uploads` 一样按相对路径读 UPLOAD_DIR，不做登录：`<video src>` 无法带 Bearer。
+路径必须落在 UPLOAD_DIR 内（拒绝 `..`）。点云接口对 ASCII PCD / KITTI bin 做均匀采样后按 chunk 返回 xyz。
+"""
 
 from __future__ import annotations
 
@@ -47,11 +51,17 @@ def _media_type(path: Path) -> str:
 
 @router.get("/media/file/{file_path:path}")
 def stream_upload_file(file_path: str, request: Request):
-    """带 Accept-Ranges 的媒体流，支持大视频 Range 分片。"""
+    """带 Accept-Ranges 的媒体流。合法 Range → 206；非法 Range → 416。"""
     path = resolve_upload_path(file_path)
     size = path.stat().st_size
     media_type = _media_type(path)
-    parsed = parse_range(request.headers.get("range"), size)
+    range_header = request.headers.get("range")
+    parsed = parse_range(range_header, size)
+    if range_header and parsed is None:
+        return Response(
+            status_code=416,
+            headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+        )
     if parsed is None:
         headers = {
             "Accept-Ranges": "bytes",
