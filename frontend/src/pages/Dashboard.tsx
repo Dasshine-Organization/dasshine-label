@@ -9,30 +9,29 @@ const LEVEL_COLORS: Record<string, string> = {
   senior: '#a78bfa', expert: '#f59e0b',
 }
 
-type QuickLink = { label: string; desc: string; href: string; color: string; icon: string }
+type QuickLink = { label: string; desc?: string; href: string; color: string; icon: string }
 
-/** 业务入口：与侧栏类别 Hub 同源 */
+/** 业务入口：与侧栏类别 Hub 同源（不展示「仅 xxx」类副标题） */
 const PRODUCT_LINKS: QuickLink[] = [
   ...CATEGORY_HUBS.map(h => ({
     label: `${h.label}项目`,
-    desc: `仅${h.label}项目`,
     href: h.projectsHref,
     color: h.color,
     icon: '◈',
   })),
-  { label: '语料任务', desc: '仅语言标注待办', href: '/tasks?category=nlp', color: '#f472b6', icon: '☰' },
-  { label: '全部任务', desc: '领取与继续全部任务', href: '/tasks', color: '#10b981', icon: '☰' },
-  { label: '审核工作台', desc: '已提交任务通过 / 驳回回流', href: '/review', color: '#a78bfa', icon: '☑' },
-  { label: '全部项目', desc: '浏览与管理全部项目', href: '/projects', color: '#f59e0b', icon: '◈' },
+  { label: '语料任务', href: '/tasks?category=nlp', color: '#f472b6', icon: '☰' },
+  { label: '全部任务', href: '/tasks', color: '#10b981', icon: '☰' },
+  { label: '审核工作台', href: '/review', color: '#a78bfa', icon: '☑' },
+  { label: '全部项目', href: '/projects', color: '#f59e0b', icon: '◈' },
 ]
 
 /** 离线/样例入口：仅开发或 VITE_ENABLE_DEMO_ENTRIES=true 时展示 */
 const DEMO_LINKS: QuickLink[] = [
-  { label: '演示 · 2D 样例', desc: '硬编码 task #1001', href: '/annotate-image/1001', color: '#64748b', icon: '◧' },
-  { label: '演示 · 点云样例', desc: '硬编码 task #1002', href: '/annotate-3d/1002', color: '#64748b', icon: '⬡' },
-  { label: '演示 · 语料 NER', desc: '硬编码 task #3001', href: '/annotate-text/3001', color: '#64748b', icon: '✎' },
-  { label: '演示 · 具身 InSight', desc: 'demo 多视角', href: '/annotate-embodied/demo', color: '#64748b', icon: '⎔' },
-  { label: '演示 · ALOHA', desc: 'task #2002', href: '/annotate-embodied/2002', color: '#64748b', icon: '⬢' },
+  { label: '演示 · 2D 样例', href: '/annotate-image/1001', color: '#64748b', icon: '◧' },
+  { label: '演示 · 点云样例', href: '/annotate-3d/1002', color: '#64748b', icon: '⬡' },
+  { label: '演示 · 语料 NER', href: '/annotate-text/3001', color: '#64748b', icon: '✎' },
+  { label: '演示 · 具身 InSight', href: '/annotate-embodied/demo', color: '#64748b', icon: '⎔' },
+  { label: '演示 · ALOHA', href: '/annotate-embodied/2002', color: '#64748b', icon: '⬢' },
 ]
 
 function LinkGrid({ links }: { links: QuickLink[] }) {
@@ -55,7 +54,7 @@ function LinkGrid({ links }: { links: QuickLink[] }) {
           </div>
           <div>
             <div className="text-sm font-medium text-white/80 group-hover:text-white transition-colors">{l.label}</div>
-            <div className="text-xs text-white/30 mt-0.5">{l.desc}</div>
+            {l.desc ? <div className="text-xs text-white/30 mt-0.5">{l.desc}</div> : null}
           </div>
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"
             className="w-4 h-4 text-white/20 group-hover:text-white/50 ml-auto transition-colors">

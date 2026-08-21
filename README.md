@@ -211,6 +211,7 @@ celery -A app.celery_app beat --loglevel=info
 
 | 主题 | 文档 |
 |------|------|
+| **界面操作指南（含截图）** | [`docs/user-guide/界面操作指南.md`](docs/user-guide/界面操作指南.md) |
 | 仓库约定（P0–P14） | [`docs/CANONICAL.md`](docs/CANONICAL.md) |
 | 部署 / 限流 | [`docs/deploy.md`](docs/deploy.md) |
 | 导出格式 | [`docs/export_formats.md`](docs/export_formats.md) |
